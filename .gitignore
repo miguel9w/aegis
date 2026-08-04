@@ -1,0 +1,23 @@
+# Pixi / Python
+.pixi/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Segredos e configuração local
+.env
+
+# Persistência gerada em runtime
+memoria_agente.db
+memoria_agente.db-*
+*.db
+trajetorias/
+agendamentos.jsonl
+
+# Artefatos
+dist/
+build/
+*.egg-info/

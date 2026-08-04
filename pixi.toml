@@ -1,0 +1,47 @@
+# =====================================================================
+# Project Aegis — Agente Pessoal Autônomo
+# Manifesto Pixi (prefix.dev) — ambiente 100% reproduzível
+# =====================================================================
+[workspace]
+name = "aegis"
+version = "0.1.0"
+description = "Project Aegis — Agente Pessoal Autônomo (LangGraph + Pixi + Rich)"
+authors = ["Miguel <miguel.bett.pandini@gmail.com>"]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+# ---------------------------------------------------------------------
+# Tasks de execução (ex.: `pixi run start`, `pixi run dev`)
+# ---------------------------------------------------------------------
+[tasks]
+start = "python main.py"                     # TUI interativa (streaming de eventos)
+dev   = "python main.py --dev"               # modo verboso (mostra todos os eventos)
+test  = "pytest -q"                          # suíte de testes
+help  = "python main.py --help"              # ajuda da CLI
+skills = "python main.py --listar-skills"    # lista habilidades (.skills/)
+ferramentas = "python main.py --listar-ferramentas"  # lista ferramentas registradas
+
+# ---------------------------------------------------------------------
+# Dependências conda (binários nativos + runtime)
+# ---------------------------------------------------------------------
+[dependencies]
+# Python 3.11: versão alvo exigida (>=3.11,<3.12)
+python = ">=3.11,<3.12"
+rich = ">=13.7.0"                 # renderização visual / TUI
+python-dotenv = ">=1.0.0"         # carregamento de .env (isolamento de chaves)
+
+# ---------------------------------------------------------------------
+# Dependências pip (resolvidas pelo Pixi via PEP 723 / pypi-dependencies)
+# Nota: o pacote PyPI "duckduckgo-search" foi REMOVIDO do PyPI em ago/2025.
+# Seu sucessor mantido pela comunidade é **ddgs** (mesma API: `from ddgs import DDGS`).
+# ---------------------------------------------------------------------
+[pypi-dependencies]
+langgraph = ">=0.4.0"
+langgraph-checkpoint-sqlite = ">=3.0.0"  # SqliteSaver + SqliteStore (checkpoints)
+aiosqlite = ">=0.20.0"                     # AsyncSqliteSaver (streaming da TUI)
+langchain-core = ">=0.3.0"
+langchain-openai = ">=0.2.0"               # abstração ChatOpenAI (DeepSeek/OpenRouter)
+openai = ">=1.40.0"                        # exceções de rate-limit/cota
+ddgs = ">=8.0.0"                           # busca web DuckDuckGo (API DDGS)
+requests = ">=2.31.0"                      # fallback SearXNG para busca web
+pytest = ">=8.0.0"                         # testes
