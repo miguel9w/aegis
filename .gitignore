@@ -8,17 +8,17 @@ __pycache__/
 .mypy_cache/
 
 # Segredos e configuração local
-.env
+config/env/.env
 
 # Persistência gerada em runtime
-memoria_agente.db
-memoria_agente.db-*
+config/dados/memoria_agente.db
+config/dados/memoria_agente.db-*
 *.db
-trajetorias/
-agendamentos.jsonl
+config/dados/trajetorias/
+config/dados/agendamentos.jsonl
 
 # Artefatos gerados
+config/dados/datasets/
 dist/
 build/
 *.egg-info/
-data/

@@ -161,10 +161,10 @@ def exportar_openai(diretorio: str | Path, saida: str | Path | None = None) -> d
 
 
 def _destino(saida: str | Path | None, prefixo: str, sufixo: str) -> Path:
-    """Define o caminho de saída padrão: `data/<prefixo><data><sufixo>`."""
+    """Define o caminho de saída padrão: `config/dados/datasets/<prefixo><sufixo>`."""
     if saida is not None:
         return Path(saida)
     data = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    base = Path(__file__).resolve().parent.parent / "data"
+    base = Path(__file__).resolve().parent.parent / "config" / "dados" / "datasets"
     base.mkdir(parents=True, exist_ok=True)
     return base / f"{prefixo}{data}{sufixo}"

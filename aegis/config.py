@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 RAIZ = Path(__file__).resolve().parent.parent
 
 # Carrega .env se existir (silencioso se não houver)
-load_dotenv(RAIZ / ".env")
+load_dotenv(RAIZ / "config" / "env" / ".env")
 
 # Sinalizador global de modo verboso (--dev)
 def _dev() -> bool:
@@ -41,7 +41,7 @@ class Config:
 
         # --- Sessão / persistência ---
         self.thread_id: str = os.getenv("AEGIS_THREAD_ID", "default")
-        self.banco: Path = RAIZ / os.getenv("AEGIS_DB", "memoria_agente.db")
+        self.banco: Path = RAIZ / os.getenv("AEGIS_DB", "config/dados/memoria_agente.db")
 
         # --- Gestão de contexto ---
         self.limiar_compressao: int = int(os.getenv("AEGIS_LIMIAR_COMPRESSAO", "20"))
@@ -54,12 +54,12 @@ class Config:
         )
 
         # --- Habilidades / trajetória ---
-        self.skills_dir: Path = RAIZ / os.getenv("AEGIS_SKILLS_DIR", ".skills")
+        self.skills_dir: Path = RAIZ / os.getenv("AEGIS_SKILLS_DIR", "extensions/skills")
         # Flag de ativação + diretório (separados — AEGIS_TRAJETORIA é um switch)
         self.trajetoria_ativa: bool = (
             os.getenv("AEGIS_TRAJETORIA", "false").strip().lower() in {"1", "true", "yes"}
         )
-        self.trajetorias_dir: Path = RAIZ / os.getenv("AEGIS_TRAJETORIA_DIR", "trajetorias")
+        self.trajetorias_dir: Path = RAIZ / os.getenv("AEGIS_TRAJETORIA_DIR", "config/dados/trajetorias")
 
         # --- Subagentes avançados (agent-as-tool) ---
         self.subagentes_ativos: bool = (
@@ -67,7 +67,7 @@ class Config:
         )
 
         # --- Agendador (cron interno) ---
-        self.agendamentos_path: Path = RAIZ / os.getenv("AEGIS_AGENDAMENTOS", "agendamentos.jsonl")
+        self.agendamentos_path: Path = RAIZ / os.getenv("AEGIS_AGENDAMENTOS", "config/dados/agendamentos.jsonl")
         self.agendador_intervalo: int = int(os.getenv("AEGIS_AGENDADOR_INTERVALO", "60"))
         self.agendador_callback: str = os.getenv("AEGIS_AGENDADOR_CALLBACK_URL", "").strip()
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-from aegis.ferramentas_plugins.exemplo_plugin import contar_palavras, reverter_texto
 from aegis.memoria import criar_store_sync, namespace_memoria, namespace_perfil
 from aegis.plugins import carregar_plugins, erros_carregamento, recarregar_plugins
 from aegis.skills import carregar_e_expor, carregar_skills, criar_skill_path
@@ -90,8 +89,9 @@ def test_carregar_plugins_exemplo():
 
 
 def test_contar_e_reverter():
-    assert contar_palavras.invoke({"texto": "olá mundo aegis"}) == "3 palavras, 15 caracteres."
-    assert reverter_texto.invoke({"texto": "abc"}) == "cba"
+    ferramentas = {f.name: f for f in carregar_plugins()}
+    assert ferramentas["contar_palavras"].invoke({"texto": "olá mundo aegis"}) == "3 palavras, 15 caracteres."
+    assert ferramentas["reverter_texto"].invoke({"texto": "abc"}) == "cba"
 
 
 def test_recarregar_plugins():

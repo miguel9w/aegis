@@ -8,9 +8,9 @@ Modos de execução:
     pixi run start --thread meu_topico    # alterna tópico/conversa
     pixi run start --novo-thread          # cria novo tópico UUID
     pixi run start --listar-ferramentas   # lista ferramentas registradas
-    pixi run start --listar-skills        # lista habilidades (.skills/)
-    pixi run start --exportar-sharegpt    # trajetorias/ → dataset ShareGPT (data/)
-    pixi run start --exportar-openai      # trajetorias/ → dataset OpenAI/RL (data/)
+    pixi run start --listar-skills        # lista habilidades (extensions/skills)
+    pixi run start --exportar-sharegpt    # trajetorias → dataset ShareGPT (config/dados/)
+    pixi run start --exportar-openai      # trajetorias → dataset OpenAI/RL (config/dados/)
     pixi run start --gateway [PORTA]      # serve o grafo via Webhook HTTP
     pixi run start --dev                  # modo verboso (todos os eventos)
 """
@@ -56,11 +56,11 @@ def novo_argumentos() -> ArgumentParser:
     p.add_argument("--listar-ferramentas", action="store_true", dest="listar_ferramentas",
                    help="Lista todas as ferramentas registradas.")
     p.add_argument("--listar-skills", action="store_true", dest="listar_skills",
-                   help="Lista as habilidades disponíveis (.skills/).")
+                   help="Lista as habilidades disponíveis (extensions/skills).")
     p.add_argument("--exportar-sharegpt", nargs="?", const="", dest="exportar_sharegpt",
-                   metavar="DESTINO", help="Exporta trajetorias/ para ShareGPT (data/).")
+                   metavar="DESTINO", help="Exporta trajetorias para ShareGPT (config/dados/datasets).")
     p.add_argument("--exportar-openai", nargs="?", const="", dest="exportar_openai",
-                   metavar="DESTINO", help="Exporta trajetorias/ para OpenAI/RL (data/).")
+                   metavar="DESTINO", help="Exporta trajetorias para OpenAI/RL (config/dados/datasets).")
     p.add_argument("--gateway", nargs="?", const="", dest="gateway",
                    metavar="PORTA", help="Serve o grafo via Webhook HTTP (std: 8787).")
     p.add_argument("--agendador", nargs="?", const="", dest="agendador",
@@ -97,7 +97,7 @@ def listar_skills() -> None:
     from aegis.skills import carregar_skills
     habilidades = carregar_skills(config.skills_dir)
     if not habilidades:
-        console.print("[yellow]Nenhuma habilidade encontrada em .skills/[/]")
+        console.print("[yellow]Nenhuma habilidade encontrada em extensions/skills[/]")
         return
     tabela = Table(title=f"Habilidades ({config.skills_dir})", border_style="magenta")
     tabela.add_column("Nome", style="bold")

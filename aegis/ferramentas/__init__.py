@@ -21,14 +21,14 @@ _cache_ferramentas: list[BaseTool] | None = None
 def carregar_ferramentas(config_obj: Any = None) -> list[BaseTool]:
     """
     Monta o registro completo de ferramentas:
-      built-ins + habilidades (.skills/) + plugins (ferramentas_plugins/).
+      built-ins + habilidades (extensions/skills/) + plugins (extensions/plugins/).
     """
     global _cache_ferramentas
     cfg = config_obj or config
 
     ferramentas: list[BaseTool] = []
     ferramentas.extend(ferramentas_basicas())
-    ferramentas.append(pesquisar_memoria)  # RAG-lite sobre Store + .skills
+    ferramentas.append(pesquisar_memoria)  # RAG-lite sobre Store + extensions/skills
     ferramentas.append(delegar_pesquisa)  # subagente pesquisador
     ferramentas.append(delegar_redacao)   # subagente redator
     ferramentas.append(agendar)  # cron interno

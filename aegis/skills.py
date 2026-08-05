@@ -1,7 +1,7 @@
 """
 Sistema de Habilidades Auto-Evolutivo (padrão aberto agentskills.io).
 
-Lê diretórios `.skills/<nome>/SKILL.md` (frontmatter YAML: name, description;
+Lê diretórios `extensions/skills/<nome>/SKILL.md` (frontmatter YAML: name, description;
 corpo: instruções) e expõe cada habilidade como uma ferramenta `usar_skill:<nome>`.
 
 O agente também pode **criar novas habilidades em runtime** através da
@@ -121,7 +121,7 @@ def ferramentas_skills(habilidades: dict[str, dict]) -> list:
     @tool
     def criar_skill(nome: str, descricao: str, conteudo: str) -> str:
         """
-        Cria ou atualiza uma habilidade no repositório .skills/ (padrão
+        Cria ou atualiza uma habilidade no repositório extensions/skills/ (padrão
         agentskills.io). Valida e grava um SKILL.md; vale na próxima execução.
         """
         from ..config import config

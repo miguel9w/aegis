@@ -1,7 +1,7 @@
 """
 Carregamento dinâmico de módulos de ferramentas (plugins) em Python.
 
-Módulos em `aegis/ferramentas_plugins/*.py` devem expor uma função
+Módulos em `extensions/plugins/*.py` devem expor uma função
 `registrar() -> list[BaseTool] | BaseTool`. O Aegis importa-os em runtime
 e permite **recarga dinâmica** (re-importação) sem reiniciar o grafo,
 fechando o ciclo de "agente escreve código → recarrega → usa".
@@ -14,8 +14,10 @@ import sys
 import types
 from pathlib import Path
 
-# Diretório padrão de plugins (relativo ao pacote `aegis`)
-_DIR_PADRAO = Path(__file__).with_name("ferramentas_plugins")
+from .config import RAIZ
+
+# Diretório padrão de plugins (fora do pacote, em `extensions/`)
+_DIR_PADRAO = RAIZ / "extensions" / "plugins"
 
 _estado_cache: dict[str, types.ModuleType] = {}
 _erros_carregamento: list[str] = []

@@ -1,6 +1,6 @@
 """Plugin de exemplo — demonstra como criar novos módulos de ferramentas.
 
-Cada plugin em `aegis/ferramentas_plugins/*.py` deve expor `registrar()`
+Cada plugin em `extensions/plugins/*.py` deve expor `registrar()`
 retornando uma ou mais ferramentas. O Aegis importa dinamicamente e permite
 recarga em runtime (`recarregar_plugins`).
 """

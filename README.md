@@ -15,7 +15,7 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) em streaming baseada
 
 ## ✨ Recursos
 
-- **Motor cognitivo agnóstico** — `ChatOpenAI` configurado por `.env`
+- **Motor cognitivo agnóstico** — `ChatOpenAI` configurado por `config/env/.env`
   (`OPENAI_API_BASE`, `OPENAI_API_KEY`, `MODEL_NAME`). Compatível com DeepSeek,
   OpenRouter, NVIDIA NIM e endpoints OpenAI-compatíveis.
 - **Grafo de estado cíclico (LangGraph)** com 4 nós:
@@ -25,12 +25,12 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) em streaming baseada
   - `no_compressao_contexto` — resume histórico antigo para controlar tokens em conversas longas.
 - **Auto-correção resiliente**: se uma ferramenta falha, o agente analisa o erro e reformula, até `AEGIS_MAX_TENTATIVAS_CORRECAO` vezes.
 - **Memória de longo prazo** (LangGraph `Store`): perfil, preferências e fatos persistidos entre sessões.
-- **Checkpoints por passo** (`SqliteSaver` em `memoria_agente.db`) — retomada de conversas e multi-tópicos via `thread_id`.
+- **Checkpoints por passo** (`SqliteSaver` em `config/dados/memoria_agente.db`) — retomada de conversas e multi-tópicos via `thread_id`.
 - **TUI Rich em streaming** via `astream_events()`: Markdown em tempo real, spinners ("Pensando…"), painéis de parâmetros/retornos de ferramentas.
-- **Sistema de habilidades auto-evolutivas** (`agentskills.io`): diretório `.skills/` com `SKILL.md`; o agente pode **escrever novas habilidades e recarregá-las em runtime**.
-- **Plugins Python recarregáveis** (`aegis/ferramentas_plugins/`) — módulos com `registrar()` adicionam ferramentas sem reiniciar.
+- **Sistema de habilidades auto-evolutivas** (`agentskills.io`): diretório `extensions/skills/` com `SKILL.md`; o agente pode **escrever novas habilidades e recarregá-las em runtime**.
+- **Plugins Python recarregáveis** (`extensions/plugins/`) — módulos com `registrar()` adicionam ferramentas sem reiniciar.
 - **Trajectory logging** (auditoria) + **exportador de datasets** ShareGPT/OpenAI (fine-tuning/RLHF).
-- **RAG-lite `pesquisar_memoria`** — recupera fatos da Store de longo prazo e do `.skills/` com ranqueamento IDF (sem dependência pesada), injetando contexto em novas sessões.
+- **RAG-lite `pesquisar_memoria`** — recupera fatos da Store de longo prazo e do `extensions/skills/` com ranqueamento IDF (sem dependência pesada), injetando contexto em novas sessões.
 - **Subagentes avançados (agent-as-tool)** — o agente delega tarefas a subgrafos especialistas: `delegar_pesquisa` (pesquisador com busca web + cálculo + memória) e `delegar_redacao` (redator de texto longo), cada um com o mesmo loop de auto-correção do núcleo.
 - **Gateway Webhook HTTP** (`pixi run gateway`) — expõe o mesmo grafo via REST (POST `/mensagem`, GET `/healthz`), pronto para bots/automação.
 - **Cron interno (agendador)** — o agente agenda tarefas autônomas (`agendar`, `listar_agendamentos`, `cancelar_agendamento`); o daemon `pixi run agendador` executa os vencidos no grafo e notifica um webhook opcional (`AEGIS_AGENDADOR_CALLBACK_URL`).
@@ -41,17 +41,28 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) em streaming baseada
 ## 🧱 Arquitetura do pacote
 
 ```
+config/
+├── env/                  # variáveis de ambiente (.env gitignored + .env.example)
+└── dados/                # estado em runtime (gitignored)
+    ├── memoria_agente.db     # checkpoints + store de longo prazo
+    ├── trajetorias/          # auditoria JSONL (base p/ datasets)
+    ├── datasets/             # exportações ShareGPT/OpenAI
+    └── agendamentos.jsonl    # cron interno
+
+extensions/
+├── skills/               # habilidades agentskills.io (SKILL.md auto-evolutivos)
+└── plugins/             # plugins Python recarregáveis (contar_palavras, reverter_texto)
+
 aegis/
-├── config.py          # Configuração central (.env → singleton tipado)
+├── config.py          # Configuração central (config/env/.env → singleton tipado)
 ├── estado.py          # EstadoAegis (TypedDict + reducers)
 ├── llm.py             # Provedor cognitivo (ChatOpenAI + retry resiliente)
 ├── grafo.py           # Monta e compila o grafo (nós + arestas condicionais)
 ├── nos.py             # Implementação dos 4 nós de execução
-├── ferramentas/       # Ferramentas nacionais (busca web, calculadora segura, sandbox)
-├── ferramentas_plugins/  # Plugins Python recarregáveis (contar_palavras, reverter_texto)
+├── ferramentas/       # Ferramentas nacionais (busca web, calculadora, sandbox)
 ├── sandbox.py         # Execução de comandos isolada (subprocesso limitado)
-├── skills.py          # Habilidades agentskills.io (leitura/escrita/recarga)
-├── plugins.py         # Carregador dinâmico de plugins
+├── skills.py          # Habilidades (leitura/escrita/recarga de extensions/skills)
+├── plugins.py         # Carregador dinâmico de plugins (extensions/plugins)
 ├── memoria.py         # SqliteSaver (checkpoints) + Store (longo prazo)
 ├── trajetoria.py      # Registro de ações (JSONL) para auditoria/MLOps
 └── tui.py             # Interface Rich baseada em streaming de eventos
@@ -70,7 +81,7 @@ main.py                # CLI: TUI streaming, headless, --listar-*
 ### 2. Configurar credenciais
 
 ```bash
-cp .env.example .env
+cp config/env/.env.example config/env/.env
 # preencha OPENAI_API_BASE / OPENAI_API_KEY / MODEL_NAME
 #   Ex.: DeepSeek:   https://api.deepseek.com/v1        + deepseek-chat
 #        OpenRouter: https://openrouter.ai/api/v1        + openrouter/auto
@@ -85,8 +96,8 @@ pixi run start                              # TUI interativa (streaming)
 pixi run dev                                # igual ao start, com modo verboso (dev)
 pixi run start --listar-ferramentas         # lista as ferramentas registradas
 pixi run start --listar-skills              # lista as habilidades carregadas
-pixi run start --exportar-sharegpt          # trajetorias/ → dataset ShareGPT (data/)
-pixi run start --exportar-openai            # trajetorias/ → dataset OpenAI/RL (data/)
+pixi run start --exportar-sharegpt          # config/dados/trajetorias → dataset ShareGPT
+pixi run start --exportar-openai            # config/dados/trajetorias → dataset OpenAI/RL
 pixi run start --gateway                    # serve o grafo via Webhook HTTP (:8787)
 pixi run test --co   # (se configurado) roda a suíte de testes
 ```
@@ -106,7 +117,7 @@ Você: CALCULE 8 * 8 com a ferramenta calculadora
 
 ---
 
-## ⚙️ Variáveis de ambiente (`.env`)
+## ⚙️ Variáveis de ambiente (`config/env/.env`)
 
 | Variável | Padrão | Descrição |
 |---|---|---|
@@ -114,17 +125,17 @@ Você: CALCULE 8 * 8 com a ferramenta calculadora
 | `OPENAI_API_KEY` | *(vazio)* | **Obrigatória** — chave da API |
 | `MODEL_NAME` | `deepseek-chat` | Modelo ativo |
 | `AEGIS_THREAD_ID` | `default` | Tópico/conversa atual |
-| `AEGIS_DB` | `memoria_agente.db` | Banco de checkpoints SQLite |
+| `AEGIS_DB` | `config/dados/memoria_agente.db` | Banco de checkpoints SQLite |
 | `AEGIS_LIMIAR_COMPRESSAO` | `20` | Mensagens antes de compactar |
 | `AEGIS_MANTER_APOS_COMPRESSAO` | `8` | Mensagens mantidas após compactar |
 | `AEGIS_MAX_TENTATIVAS_CORRECAO` | `3` | Limite do loop de auto-correção |
 | `AEGIS_MEMORIA_ATIVA` | `true` | Liga/desliga Store de longo prazo |
-| `AEGIS_SKILLS_DIR` | `.skills` | Pasta de habilidades auto-evolutivas |
+| `AEGIS_SKILLS_DIR` | `extensions/skills` | Pasta de habilidades auto-evolutivas |
 | `AEGIS_TRAJETORIA` | `false` | Habilita trajectory logging |
-| `AEGIS_TRAJETORIA_DIR` | `trajetorias/` | Onde o JSONL é gravado |
+| `AEGIS_TRAJETORIA_DIR` | `config/dados/trajetorias` | Onde o JSONL é gravado |
 | `AEGIS_GATEWAY_PORT` | `8787` | Porta do gateway Webhook (`pixi run gateway`) |
 | `AEGIS_SUBAGENTES` | `true` | Habilita subagentes pesquisador/redator |
-| `AEGIS_AGENDAMENTOS` | `agendamentos.jsonl` | Arquivo de persistência do cron interno |
+| `AEGIS_AGENDAMENTOS` | `config/dados/agendamentos.jsonl` | Arquivo de persistência do cron interno |
 | `AEGIS_AGENDADOR_INTERVALO` | `60` | Segundos entre execuções do daemon `agendador` |
 | `AEGIS_AGENDADOR_CALLBACK_URL` | *(vazio)* | Webhook notificado a cada conclusão de agendamento |
 | `AEGIS_SEARXNG_URL` | — | URL do SearXNG (alternativa à busca DDG) |
@@ -195,10 +206,11 @@ busca web (mock), sandbox, Store de longo prazo, carga/recriação de skills e r
 
 O desacoplamento já permite (sem code change estrutural):
 
-- ✔️ **Exportador de trajetórias ShareGPT/RL** — `pixi run start --exportar-sharegpt|--exportar-openai` consome `trajetorias/*.jsonl` e gera datasets em `data/`.
-- ✔️ **RAG-lite sobre a memória** — ferramenta `pesquisar_memoria` (IDF) sobre a Store + `.skills/`.
+- ✔️ **Exportador de trajetórias ShareGPT/RL** — `pixi run start --exportar-sharegpt|--exportar-openai` consome `config/dados/trajetorias/*.jsonl` e gera datasets em `config/dados/datasets/`.
+- ✔️ **RAG-lite sobre a memória** — ferramenta `pesquisar_memoria` (IDF) sobre a Store + `extensions/skills/`.
 - ✔️ **Gateway Webhook HTTP** — `pixi run gateway` expõe o grafo via REST (base para bots).
-- ✔️ **Background workers / cron** — `pixi run agendador` (daemon) executa vencidos de `agendamentos.jsonl` com callback webhook.
+- ✔️ **Background workers / cron** — `pixi run agendador` (daemon) executa vencidos de `config/dados/agendamentos.jsonl` com callback webhook.
+- ✔️ **Estrutura organizada (v0.5.0)** — `config/` (env + dados/estado em subpastas) e `extensions/` (skills + plugins em subpastas); tudo configurável por `AEGIS_*`.
 - **Sandbox Docker/SSH** — plug into `sandbox.py` (hoje subprocesso isolado).
 - **Bots Telegram/Discord/Slack** — próxima camada sobre o gateway: basta um dispatcher apontando para `processar_mensagem`.
 

@@ -1,6 +1,6 @@
 """
 Recuperação de memória (RAG-lite) — busca factual sobre a Store de longo prazo
-e o repositório de habilidades (.skills/), sem dependências pesadas.
+e o repositório de habilidades (extensions/skills/), sem dependências pesadas.
 
 Estratégia: ranqueamento por sobreposição de tokens (peso IDF calculado sobre
 o próprio corpus), determinístico e testável sem LLM.
@@ -83,7 +83,7 @@ def _pontuar(consulta: list[str], doc: list[str], idf: dict[str, float]) -> floa
 def pesquisar_memoria(consulta: str, limite: int = 5) -> str:
     """
     Busca fatos e preferências do usuário na memória de longo prazo (Store)
-    e nos resumos de habilidades (.skills/). Use ANTES de responder quando a
+    e nos resumos de habilidades (extensions/skills/). Use ANTES de responder quando a
     resposta depender de informações que o agente já conheceu em outras
     sessões. Retorna trechos ranqueados por relevância.
     """
