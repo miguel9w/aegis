@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Any, Callable
 
 from langchain_core.messages import (
     AIMessage,
@@ -90,8 +90,13 @@ def _parsear_json_fatos(texto: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------
 
 def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
-                 cfg: Config) -> dict[str, Any]:
-    """Cria todos os nós do grafo com o contexto injetado."""
+                 cfg: Config, prompt_fn: Callable[..., str] | None = None) -> dict[str, Any]:
+    """Cria todos os nós do grafo com o contexto injetado.
+
+    `prompt_fn` (opcional) substitui o prompt de sistema padrão — usado pelos
+    subagentes especialistas (pesquisador, redator) que têm persona própria.
+    Assinatura: ``prompt_fn(perfil, resumo, ferramentas, metadados) -> str``.
+    """
 
     llm_com_ferramentas = llm.bind_tools(ferramentas)
     executor = ToolNode(ferramentas, messages_key="mensagens")
@@ -107,9 +112,13 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                 perfil = None
 
         resumo = state.get("contexto_comprimido") or ""
-        system = SystemMessage(
-            sistema(perfil, resumo, ferramentas, state.get("metadados_sessao"))
-        )
+        if prompt_fn is not None:
+            texto_sistema = prompt_fn(
+                perfil, resumo, ferramentas, state.get("metadados_sessao")
+            )
+        else:
+            texto_sistema = sistema(perfil, resumo, ferramentas, state.get("metadados_sessao"))
+        system = SystemMessage(texto_sistema)
         mensagens = [system, *state["mensagens"]]
         # tag "resposta" → a TUI filtra apenas os tokens desta chamada no streaming
         resposta = com_retry(

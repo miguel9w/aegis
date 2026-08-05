@@ -31,6 +31,7 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) em streaming baseada
 - **Plugins Python recarregáveis** (`aegis/ferramentas_plugins/`) — módulos com `registrar()` adicionam ferramentas sem reiniciar.
 - **Trajectory logging** (auditoria) + **exportador de datasets** ShareGPT/OpenAI (fine-tuning/RLHF).
 - **RAG-lite `pesquisar_memoria`** — recupera fatos da Store de longo prazo e do `.skills/` com ranqueamento IDF (sem dependência pesada), injetando contexto em novas sessões.
+- **Subagentes avançados (agent-as-tool)** — o agente delega tarefas a subgrafos especialistas: `delegar_pesquisa` (pesquisador com busca web + cálculo + memória) e `delegar_redacao` (redator de texto longo), cada um com o mesmo loop de auto-correção do núcleo.
 - **Gateway Webhook HTTP** (`pixi run gateway`) — expõe o mesmo grafo via REST (POST `/mensagem`, GET `/healthz`), pronto para bots/automação.
 - **Rate limiting resiliente** — backoff exponencial + jitter + respeito a `Retry-After`.
 
@@ -121,6 +122,7 @@ Você: CALCULE 8 * 8 com a ferramenta calculadora
 | `AEGIS_TRAJETORIA` | `false` | Habilita trajectory logging |
 | `AEGIS_TRAJETORIA_DIR` | `trajetorias/` | Onde o JSONL é gravado |
 | `AEGIS_GATEWAY_PORT` | `8787` | Porta do gateway Webhook (`pixi run gateway`) |
+| `AEGIS_SUBAGENTES` | `true` | Habilita subagentes pesquisador/redator |
 | `AEGIS_SEARXNG_URL` | — | URL do SearXNG (alternativa à busca DDG) |
 | `AEGIS_TEMPERATURA` | `0.7` | Temperatura do modelo |
 
@@ -158,10 +160,25 @@ Você: CALCULE 8 * 8 com a ferramenta calculadora
 
 ---
 
+## 🧩 Subagentes avançados (agent-as-tool)
+
+O Aegis delega tarefas especializadas a **subgrafos LangGraph** que reusam o
+loop cognitivo do núcleo (agente → ferramentas → reflexão), com persona própria
+e um subconjunto de ferramentas:
+
+| Subagente | Ferramentas | Uso |
+|---|---|---|
+| `pesquisador` | `buscar_web`, `calculadora`, `pesquisar_memoria` | pesquisa com fontes, síntese com evidências |
+| `redator` | — (escrita pura) | textos longos e estruturados em pt-BR |
+
+O agente principal decide quando delegar (via `delegar_pesquisa` /
+`delegar_redacao`); cada delegação é registrada no painel de ferramentas da TUI
+e na trajetória. Subagentes são stateless — o resultado volta ao grafo principal.
+
 ## 🧪 Testes
 
 ```bash
-pixi run pytest          # 40 testes (grafo com LLM mock, memória, ferramentas, skills, plugins, exportador, RAG, gateway)
+pixi run pytest          # 47 testes (grafo com LLM mock, memória, ferramentas, skills, plugins, exportador, RAG, gateway, subagentes)
 ```
 
 Cobertura: roteamento do grafo, fluxo de auto-correção (incl. limite), retomada de

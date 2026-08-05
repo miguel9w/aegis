@@ -61,6 +61,11 @@ class Config:
         )
         self.trajetorias_dir: Path = RAIZ / os.getenv("AEGIS_TRAJETORIA_DIR", "trajetorias")
 
+        # --- Subagentes avançados (agent-as-tool) ---
+        self.subagentes_ativos: bool = (
+            os.getenv("AEGIS_SUBAGENTES", "true").strip().lower() in {"1", "true", "yes"}
+        )
+
         # --- Busca web alterna (SearXNG) ---
         self.searxng_url: str = os.getenv("AEGIS_SEARXNG_URL", "").strip().rstrip("/")
 
