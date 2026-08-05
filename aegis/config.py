@@ -66,6 +66,11 @@ class Config:
             os.getenv("AEGIS_SUBAGENTES", "true").strip().lower() in {"1", "true", "yes"}
         )
 
+        # --- Agendador (cron interno) ---
+        self.agendamentos_path: Path = RAIZ / os.getenv("AEGIS_AGENDAMENTOS", "agendamentos.jsonl")
+        self.agendador_intervalo: int = int(os.getenv("AEGIS_AGENDADOR_INTERVALO", "60"))
+        self.agendador_callback: str = os.getenv("AEGIS_AGENDADOR_CALLBACK_URL", "").strip()
+
         # --- Busca web alterna (SearXNG) ---
         self.searxng_url: str = os.getenv("AEGIS_SEARXNG_URL", "").strip().rstrip("/")
 

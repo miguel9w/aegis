@@ -23,6 +23,8 @@ ferramentas = "python main.py --listar-ferramentas"  # lista ferramentas registr
 export-sharegpt = "python main.py --exportar-sharegpt"  # trajetorias/ → dataset ShareGPT
 export-openai = "python main.py --exportar-openai"      # trajetorias/ → dataset OpenAI/RL
 gateway = "python main.py --gateway"         # serve o grafo via Webhook HTTP
+agendador = "python main.py --agendador"     # loop do cron interno (executa vencidos)
+agendador_uma_vez = "python main.py --agendador-uma-vez"  # roda vencidos uma vez e sai
 
 # ---------------------------------------------------------------------
 # Dependências conda (binários nativos + runtime)

@@ -63,6 +63,10 @@ def novo_argumentos() -> ArgumentParser:
                    metavar="DESTINO", help="Exporta trajetorias/ para OpenAI/RL (data/).")
     p.add_argument("--gateway", nargs="?", const="", dest="gateway",
                    metavar="PORTA", help="Serve o grafo via Webhook HTTP (std: 8787).")
+    p.add_argument("--agendador", nargs="?", const="", dest="agendador",
+                   metavar="SEGUNDOS", help="Loop do cron interno (executa vencidos a cada N s).")
+    p.add_argument("--agendador-uma-vez", action="store_true", dest="agenda_uma_vez",
+                   help="Executa os agendamentos vencidos uma única vez e sai.")
     p.add_argument("--versao", action="store_true", help="Mostra a versão do Aegis.")
     return p
 
@@ -147,6 +151,54 @@ def _rodar_gateway(porta: str) -> int:
     return 0
 
 
+def _rodar_agendador(intervalo: int, uma_vez: bool = False) -> int:
+    """Loop do cron: executa agendamentos vencidos no grafo a cada intervalo."""
+    import time
+
+    import aegis.agendador as ag
+
+    try:
+        app, _ferramentas = _montar_app_sync()
+    except ConfigError as exc:
+        console.print(Panel(f"[red]{exc}[/]", title="Configuração", border_style="red"))
+        return 1
+
+    local = config.agendamentos_path
+    callback = config.agendador_callback or None
+    console.print(Panel(
+        f"[green]Agendador ativo[/] — arquivo: [cyan]{local}[/]\n"
+        f"intervalo: {intervalo}s · callback: {callback or '(nenhum)'}\n"
+        "[dim]Ctrl+C para encerrar[/]",
+        title="Aegis Cron", border_style="green"))
+
+    def _processar() -> None:
+        processados = ag.executar_vencidos(app, caminho=local, webhook_url=callback)
+        for r in processados:
+            estado: str = r.get("estado") or "desconhecido"
+            simbolo = {"agendado": "🔁", "concluido": "✅", "falhou": "❌"}.get(estado, "⏸")
+            linha = (
+                f"[cyan]{simbolo}[/] [{r['id']}] {str(r['tarefa'])[:60]} — "
+                f"[{'green' if estado in ('concluido', 'agendado') else 'red'}]{estado}[/]"
+            )
+            if r.get("erro"):
+                linha += f" · {str(r['erro'])[:120]}"
+            console.print(linha)
+        if not processados:
+            console.print("[dim]sem agendamentos vencidos no momento[/]")
+
+    _processar()
+    if uma_vez:
+        return 0
+
+    try:
+        while True:
+            time.sleep(intervalo)
+            _processar()
+    except KeyboardInterrupt:
+        console.print("\n[dim]Cron encerrado. Até logo! 👋[/]")
+    return 0
+
+
 def _montar_app_sync():
     """Constrói o grafo com checkpointer síncrono (headless/testes)."""
     checkpointer = criar_checkpointer_sync(config.banco)
@@ -217,6 +269,11 @@ def main(argv: list[str] | None = None) -> int:
         return _exportar("openai", args.exportar_openai or None)
     if args.gateway is not None:
         return _rodar_gateway(args.gateway)
+    if args.agenda_uma_vez:
+        return _rodar_agendador(config.agendador_intervalo, uma_vez=True)
+    if args.agendador is not None:
+        intervalo = int(args.agendador or config.agendador_intervalo)
+        return _rodar_agendador(intervalo)
 
     trajetoria = Trajetoria(config.trajetorias_dir) if config.trajetoria_ativa else None
 

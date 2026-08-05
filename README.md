@@ -33,6 +33,7 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) em streaming baseada
 - **RAG-lite `pesquisar_memoria`** — recupera fatos da Store de longo prazo e do `.skills/` com ranqueamento IDF (sem dependência pesada), injetando contexto em novas sessões.
 - **Subagentes avançados (agent-as-tool)** — o agente delega tarefas a subgrafos especialistas: `delegar_pesquisa` (pesquisador com busca web + cálculo + memória) e `delegar_redacao` (redator de texto longo), cada um com o mesmo loop de auto-correção do núcleo.
 - **Gateway Webhook HTTP** (`pixi run gateway`) — expõe o mesmo grafo via REST (POST `/mensagem`, GET `/healthz`), pronto para bots/automação.
+- **Cron interno (agendador)** — o agente agenda tarefas autônomas (`agendar`, `listar_agendamentos`, `cancelar_agendamento`); o daemon `pixi run agendador` executa os vencidos no grafo e notifica um webhook opcional (`AEGIS_AGENDADOR_CALLBACK_URL`).
 - **Rate limiting resiliente** — backoff exponencial + jitter + respeito a `Retry-After`.
 
 ---
@@ -123,6 +124,9 @@ Você: CALCULE 8 * 8 com a ferramenta calculadora
 | `AEGIS_TRAJETORIA_DIR` | `trajetorias/` | Onde o JSONL é gravado |
 | `AEGIS_GATEWAY_PORT` | `8787` | Porta do gateway Webhook (`pixi run gateway`) |
 | `AEGIS_SUBAGENTES` | `true` | Habilita subagentes pesquisador/redator |
+| `AEGIS_AGENDAMENTOS` | `agendamentos.jsonl` | Arquivo de persistência do cron interno |
+| `AEGIS_AGENDADOR_INTERVALO` | `60` | Segundos entre execuções do daemon `agendador` |
+| `AEGIS_AGENDADOR_CALLBACK_URL` | *(vazio)* | Webhook notificado a cada conclusão de agendamento |
 | `AEGIS_SEARXNG_URL` | — | URL do SearXNG (alternativa à busca DDG) |
 | `AEGIS_TEMPERATURA` | `0.7` | Temperatura do modelo |
 
@@ -178,7 +182,7 @@ e na trajetória. Subagentes são stateless — o resultado volta ao grafo princ
 ## 🧪 Testes
 
 ```bash
-pixi run pytest          # 47 testes (grafo com LLM mock, memória, ferramentas, skills, plugins, exportador, RAG, gateway, subagentes)
+pixi run pytest          # 56 testes (grafo com LLM mock, memória, ferramentas, skills, plugins, exportador, RAG, gateway, subagentes, cron)
 ```
 
 Cobertura: roteamento do grafo, fluxo de auto-correção (incl. limite), retomada de
@@ -194,8 +198,8 @@ O desacoplamento já permite (sem code change estrutural):
 - ✔️ **Exportador de trajetórias ShareGPT/RL** — `pixi run start --exportar-sharegpt|--exportar-openai` consome `trajetorias/*.jsonl` e gera datasets em `data/`.
 - ✔️ **RAG-lite sobre a memória** — ferramenta `pesquisar_memoria` (IDF) sobre a Store + `.skills/`.
 - ✔️ **Gateway Webhook HTTP** — `pixi run gateway` expõe o grafo via REST (base para bots).
+- ✔️ **Background workers / cron** — `pixi run agendador` (daemon) executa vencidos de `agendamentos.jsonl` com callback webhook.
 - **Sandbox Docker/SSH** — plug into `sandbox.py` (hoje subprocesso isolado).
-- **Background workers / cron** — o `agendamentos.jsonl` (base) já prevê hooks de agendamento.
 - **Bots Telegram/Discord/Slack** — próxima camada sobre o gateway: basta um dispatcher apontando para `processar_mensagem`.
 
 ---
