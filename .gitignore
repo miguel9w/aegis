@@ -17,7 +17,8 @@ memoria_agente.db-*
 trajetorias/
 agendamentos.jsonl
 
-# Artefatos
+# Artefatos gerados
 dist/
 build/
 *.egg-info/
+data/

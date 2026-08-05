@@ -20,6 +20,9 @@ test  = "pytest -q"                          # suíte de testes
 help  = "python main.py --help"              # ajuda da CLI
 skills = "python main.py --listar-skills"    # lista habilidades (.skills/)
 ferramentas = "python main.py --listar-ferramentas"  # lista ferramentas registradas
+export-sharegpt = "python main.py --exportar-sharegpt"  # trajetorias/ → dataset ShareGPT
+export-openai = "python main.py --exportar-openai"      # trajetorias/ → dataset OpenAI/RL
+gateway = "python main.py --gateway"         # serve o grafo via Webhook HTTP
 
 # ---------------------------------------------------------------------
 # Dependências conda (binários nativos + runtime)

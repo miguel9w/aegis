@@ -38,6 +38,10 @@ class Trajetoria:
             fh.write(json.dumps(linha, ensure_ascii=False, default=str) + "\n")
             fh.flush()
 
+    def registrar_mensagem_usuario(self, thread_id: str, conteudo: Any) -> None:
+        """Registra a mensagem do usuário (usada pelo exportador ShareGPT/RL)."""
+        self.registrar(thread_id, "mensagem_usuario", {"conteudo": str(conteudo)})
+
     # -----------------------------------------------------------------
     # Hook para consumo direto de eventos (astream_events)
     # -----------------------------------------------------------------
@@ -60,6 +64,14 @@ class Trajetoria:
                     self.registrar(thread_id, "ferramenta_fim", {
                         "saida": str(getattr(saida_obj, "content", saida_obj))[:500],
                     })
+                elif kind == "on_chat_model_end":
+                    # guarda apenas a resposta FINAL do modelo cognitivo (tag
+                    # "resposta" - no_agente), alimentando datasets ShareGPT/RL
+                    if "resposta" in (evento.get("tags") or []):
+                        saida = (evento.get("data") or {}).get("output")
+                        self.registrar(thread_id, "mensagem_agente", {
+                            "conteudo": str(getattr(saida, "content", "")),
+                        })
                 elif kind == "on_chain_start":
                     no = meta.get("langgraph_node")
                     if no:

@@ -9,6 +9,9 @@ Modos de execução:
     pixi run start --novo-thread          # cria novo tópico UUID
     pixi run start --listar-ferramentas   # lista ferramentas registradas
     pixi run start --listar-skills        # lista habilidades (.skills/)
+    pixi run start --exportar-sharegpt    # trajetorias/ → dataset ShareGPT (data/)
+    pixi run start --exportar-openai      # trajetorias/ → dataset OpenAI/RL (data/)
+    pixi run start --gateway [PORTA]      # serve o grafo via Webhook HTTP
     pixi run start --dev                  # modo verboso (todos os eventos)
 """
 
@@ -54,6 +57,12 @@ def novo_argumentos() -> ArgumentParser:
                    help="Lista todas as ferramentas registradas.")
     p.add_argument("--listar-skills", action="store_true", dest="listar_skills",
                    help="Lista as habilidades disponíveis (.skills/).")
+    p.add_argument("--exportar-sharegpt", nargs="?", const="", dest="exportar_sharegpt",
+                   metavar="DESTINO", help="Exporta trajetorias/ para ShareGPT (data/).")
+    p.add_argument("--exportar-openai", nargs="?", const="", dest="exportar_openai",
+                   metavar="DESTINO", help="Exporta trajetorias/ para OpenAI/RL (data/).")
+    p.add_argument("--gateway", nargs="?", const="", dest="gateway",
+                   metavar="PORTA", help="Serve o grafo via Webhook HTTP (std: 8787).")
     p.add_argument("--versao", action="store_true", help="Mostra a versão do Aegis.")
     return p
 
@@ -92,6 +101,50 @@ def listar_skills() -> None:
     for nome, info in sorted(habilidades.items()):
         tabela.add_row(nome, info["descricao"][:150])
     console.print(tabela)
+
+
+def _exportar(formato: str, destino: str | None) -> int:
+    """Exporta trajetórias para dataset ShareGPT ou OpenAI (fine-tuning/RL)."""
+    from aegis.exportador import exportar_openai, exportar_sharegpt
+
+    diretorio = config.trajetorias_dir
+    if not diretorio.is_dir():
+        console.print("[yellow]Nenhuma trajetória encontrada — habilite AEGIS_TRAJETORIA=true.[/]")
+        return 1
+    fn = exportar_sharegpt if formato == "sharegpt" else exportar_openai
+    resumo = fn(diretorio, destino or None)
+    console.print(Panel(
+        f"[green]✔ {resumo['conversas']} conversa(s) de {resumo['threads']} thread(s)\n"
+        f"[cyan]{resumo['arquivo']}[/]",
+        title=f"Exportação {formato}", border_style="green"))
+    return 0
+
+
+def _rodar_gateway(porta: str) -> int:
+    """Serve o grafo via Webhook HTTP (mesma lógica da TUI, sem terminal)."""
+    import os
+
+    from aegis.gateways import iniciar_servidor
+
+    try:
+        app, _ferramentas = _montar_app_sync()
+    except ConfigError as exc:
+        console.print(Panel(f"[red]{exc}[/]", title="Configuração", border_style="red"))
+        return 1
+    porta_int = int(porta or os.getenv("AEGIS_GATEWAY_PORT", "8787"))
+    servidor = iniciar_servidor(app, porta=porta_int)
+    console.print(Panel(
+        f"Webhook ativo em [bold cyan]http://127.0.0.1:{porta_int}[/]\n"
+        "POST /mensagem  {'mensagem': '...', 'thread_id': 'opcional'}\n"
+        "GET  /healthz\n[dim]Ctrl+C para encerrar[/]",
+        title="Aegis Gateway", border_style="green"))
+    try:
+        servidor.serve_forever()
+    except KeyboardInterrupt:
+        console.print("\n[dim]Gateway encerrado. Até logo! 👋[/]")
+    finally:
+        servidor.server_close()
+    return 0
 
 
 def _montar_app_sync():
@@ -158,6 +211,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.listar_skills:
         listar_skills()
         return 0
+    if args.exportar_sharegpt is not None:
+        return _exportar("sharegpt", args.exportar_sharegpt or None)
+    if args.exportar_openai is not None:
+        return _exportar("openai", args.exportar_openai or None)
+    if args.gateway is not None:
+        return _rodar_gateway(args.gateway)
 
     trajetoria = Trajetoria(config.trajetorias_dir) if config.trajetoria_ativa else None
 
@@ -173,6 +232,14 @@ def main(argv: list[str] | None = None) -> int:
             console.print(Panel(f"[red]{exc}[/]", title="Configuração", border_style="red"))
             return 1
         resultado = executar_headless(app, ferramentas, pergunta, config)
+        # Auditabilidade: registra a troca na trajetória (dataset ShareGPT/RL)
+        if trajetoria:
+            trajetoria.registrar_mensagem_usuario(config.thread_id, pergunta)
+            mensagens = resultado.get("mensagens") or []
+            if mensagens:
+                trajetoria.registrar(config.thread_id, "mensagem_agente", {
+                    "conteudo": str(getattr(mensagens[-1], "content", mensagens[-1])),
+                })
         _imprimir_resultado(resultado, config)
         return 0
 

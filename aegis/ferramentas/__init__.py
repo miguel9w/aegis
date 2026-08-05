@@ -10,6 +10,7 @@ from ..config import config
 from .basicas import ferramentas_basicas
 from ..skills import carregar_e_expor
 from ..plugins import carregar_plugins, erros_carregamento
+from ..recuperacao import pesquisar_memoria
 
 # Cache em nível de módulo (recarregado sob demanda)
 _cache_ferramentas: list[BaseTool] | None = None
@@ -25,6 +26,7 @@ def carregar_ferramentas(config_obj: Any = None) -> list[BaseTool]:
 
     ferramentas: list[BaseTool] = []
     ferramentas.extend(ferramentas_basicas())
+    ferramentas.append(pesquisar_memoria)  # RAG-lite sobre Store + .skills
     ferramentas.extend(carregar_e_expor(cfg.skills_dir))
     ferramentas.extend(carregar_plugins())
 
@@ -40,6 +42,7 @@ def recarregar_tudo(config_obj: Any = None) -> list[BaseTool]:
     cfg = config_obj or config
     ferramentas: list[BaseTool] = []
     ferramentas.extend(ferramentas_basicas())
+    ferramentas.append(pesquisar_memoria)
     ferramentas.extend(_expor(cfg.skills_dir))
     ferramentas.extend(_reload())
     _cache_ferramentas = ferramentas

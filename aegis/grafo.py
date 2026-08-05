@@ -48,7 +48,10 @@ def montar_grafo(
     """
     from .config import config as _config_global
     from .nos import _eh_erro  # detecção de erro de ferramenta
+    from .recuperacao import definir_store
     cfg = cfg or _config_global
+    if store is not None:
+        definir_store(store)  # vincula a Store à ferramenta pesquisar_memoria
 
     def _ultima_ferramenta_erro(mensagens) -> bool:
         """Verifica se a ÚLTIMA execução de ferramenta terminou em erro.

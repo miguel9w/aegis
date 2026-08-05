@@ -103,6 +103,10 @@ class TuiAegis:
         """Executa um turno com streaming e renderização ao vivo."""
         self.console.print(self._painel_usuario(pergunta))
 
+        # Auditabilidade: registra a pergunta na trajetória (dataset ShareGPT/RL)
+        if self.trajetoria:
+            self.trajetoria.registrar_mensagem_usuario(self.cfg.thread_id, pergunta)
+
         config = {"configurable": {"thread_id": self.cfg.thread_id}}
         entrada = {
             "mensagens": [HumanMessage(pergunta)],

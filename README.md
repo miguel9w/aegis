@@ -29,7 +29,9 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) em streaming baseada
 - **TUI Rich em streaming** via `astream_events()`: Markdown em tempo real, spinners ("Pensando…"), painéis de parâmetros/retornos de ferramentas.
 - **Sistema de habilidades auto-evolutivas** (`agentskills.io`): diretório `.skills/` com `SKILL.md`; o agente pode **escrever novas habilidades e recarregá-las em runtime**.
 - **Plugins Python recarregáveis** (`aegis/ferramentas_plugins/`) — módulos com `registrar()` adicionam ferramentas sem reiniciar.
-- **Trajectory logging** (auditoria) + preparado para **exportador ShareGPT/RL**.
+- **Trajectory logging** (auditoria) + **exportador de datasets** ShareGPT/OpenAI (fine-tuning/RLHF).
+- **RAG-lite `pesquisar_memoria`** — recupera fatos da Store de longo prazo e do `.skills/` com ranqueamento IDF (sem dependência pesada), injetando contexto em novas sessões.
+- **Gateway Webhook HTTP** (`pixi run gateway`) — expõe o mesmo grafo via REST (POST `/mensagem`, GET `/healthz`), pronto para bots/automação.
 - **Rate limiting resiliente** — backoff exponencial + jitter + respeito a `Retry-After`.
 
 ---
@@ -78,9 +80,12 @@ cp .env.example .env
 ```bash
 pixi run start "Quem descobriu o Brasil?"   # modo headless (resposta única)
 pixi run start                              # TUI interativa (streaming)
-pixi run dev                                # igual ao start, com logowd dev ligado
+pixi run dev                                # igual ao start, com modo verboso (dev)
 pixi run start --listar-ferramentas         # lista as ferramentas registradas
 pixi run start --listar-skills              # lista as habilidades carregadas
+pixi run start --exportar-sharegpt          # trajetorias/ → dataset ShareGPT (data/)
+pixi run start --exportar-openai            # trajetorias/ → dataset OpenAI/RL (data/)
+pixi run start --gateway                    # serve o grafo via Webhook HTTP (:8787)
 pixi run test --co   # (se configurado) roda a suíte de testes
 ```
 
@@ -115,6 +120,7 @@ Você: CALCULE 8 * 8 com a ferramenta calculadora
 | `AEGIS_SKILLS_DIR` | `.skills` | Pasta de habilidades auto-evolutivas |
 | `AEGIS_TRAJETORIA` | `false` | Habilita trajectory logging |
 | `AEGIS_TRAJETORIA_DIR` | `trajetorias/` | Onde o JSONL é gravado |
+| `AEGIS_GATEWAY_PORT` | `8787` | Porta do gateway Webhook (`pixi run gateway`) |
 | `AEGIS_SEARXNG_URL` | — | URL do SearXNG (alternativa à busca DDG) |
 | `AEGIS_TEMPERATURA` | `0.7` | Temperatura do modelo |
 
@@ -155,7 +161,7 @@ Você: CALCULE 8 * 8 com a ferramenta calculadora
 ## 🧪 Testes
 
 ```bash
-pixi run pytest          # 28 testes (grafo com LLM mock, memória, ferramentas, skills, plugins, trajetória)
+pixi run pytest          # 40 testes (grafo com LLM mock, memória, ferramentas, skills, plugins, exportador, RAG, gateway)
 ```
 
 Cobertura: roteamento do grafo, fluxo de auto-correção (incl. limite), retomada de
@@ -168,11 +174,12 @@ busca web (mock), sandbox, Store de longo prazo, carga/recriação de skills e r
 
 O desacoplamento já permite (sem code change estrutural):
 
-- **Exportador de trajetórias ShareGPT/RL** — basta consumir `trajetorias/*.jsonl` e montar o formato.
-- **Skills auto-evolutivas** — `criar_skill` (ferramenta) grava `.skills/<slug>/SKILL.md` e recarrega em runtime.
+- ✔️ **Exportador de trajetórias ShareGPT/RL** — `pixi run start --exportar-sharegpt|--exportar-openai` consome `trajetorias/*.jsonl` e gera datasets em `data/`.
+- ✔️ **RAG-lite sobre a memória** — ferramenta `pesquisar_memoria` (IDF) sobre a Store + `.skills/`.
+- ✔️ **Gateway Webhook HTTP** — `pixi run gateway` expõe o grafo via REST (base para bots).
 - **Sandbox Docker/SSH** — plug into `sandbox.py` (hoje subprocesso isolado).
 - **Background workers / cron** — o `agendamentos.jsonl` (base) já prevê hooks de agendamento.
-- **Gateway multi-canal** — a TUI consome só o `app` (grafo); basta trocar a camada por webhooks/Telegram/Discord/Slack.
+- **Bots Telegram/Discord/Slack** — próxima camada sobre o gateway: basta um dispatcher apontando para `processar_mensagem`.
 
 ---
 
