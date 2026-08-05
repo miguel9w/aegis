@@ -13,6 +13,8 @@ from ..plugins import carregar_plugins, erros_carregamento
 from ..recuperacao import pesquisar_memoria
 from ..subagentes import delegar_pesquisa, delegar_redacao
 from ..agendador import agendar, cancelar_agendamento, listar_agendamentos
+from ..sessoes import pesquisar_sessoes
+from ..tarefas import tarefas
 
 # Cache em nível de módulo (recarregado sob demanda)
 _cache_ferramentas: list[BaseTool] | None = None
@@ -34,6 +36,8 @@ def carregar_ferramentas(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(agendar)  # cron interno
     ferramentas.append(listar_agendamentos)
     ferramentas.append(cancelar_agendamento)
+    ferramentas.append(pesquisar_sessoes)  # recall de sessões passadas (Hermes)
+    ferramentas.append(tarefas)  # todo/planejamento (Hermes)
     ferramentas.extend(carregar_e_expor(cfg.skills_dir))
     ferramentas.extend(carregar_plugins())
 
@@ -55,6 +59,8 @@ def recarregar_tudo(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(agendar)
     ferramentas.append(listar_agendamentos)
     ferramentas.append(cancelar_agendamento)
+    ferramentas.append(pesquisar_sessoes)
+    ferramentas.append(tarefas)
     ferramentas.extend(_expor(cfg.skills_dir))
     ferramentas.extend(_reload())
     _cache_ferramentas = ferramentas

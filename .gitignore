@@ -16,6 +16,7 @@ config/dados/memoria_agente.db-*
 *.db
 config/dados/trajetorias/
 config/dados/agendamentos.jsonl
+config/dados/tarefas.json
 
 # Artefatos gerados
 config/dados/datasets/

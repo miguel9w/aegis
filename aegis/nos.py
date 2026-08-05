@@ -199,6 +199,15 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         resumo_anterior = state.get("contexto_comprimido", "")
         novo_resumo = _resumir(antigas, resumo_anterior)
 
+        # Re-injeção das tarefas ativas após a compressão (paridade Hermes todo_tool)
+        try:
+            from .tarefas import resumo_ativo_para_reinjecao
+            tarefas_ativas = resumo_ativo_para_reinjecao()
+            if tarefas_ativas:
+                novo_resumo = novo_resumo.rstrip() + "\n\n" + tarefas_ativas
+        except Exception:  # noqa: BLE001 — nunca deixa a compressão quebrar
+            pass
+
         # RemoveMessage é o único jeito seguro de PODAR histórico com add_messages
         remocoes = [RemoveMessage(id=m.id) for m in antigas if getattr(m, "id", None)]
         return {

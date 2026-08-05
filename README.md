@@ -34,6 +34,8 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) em streaming baseada
 - **Subagentes avançados (agent-as-tool)** — o agente delega tarefas a subgrafos especialistas: `delegar_pesquisa` (pesquisador com busca web + cálculo + memória) e `delegar_redacao` (redator de texto longo), cada um com o mesmo loop de auto-correção do núcleo.
 - **Gateway Webhook HTTP** (`pixi run gateway`) — expõe o mesmo grafo via REST (POST `/mensagem`, GET `/healthz`), pronto para bots/automação.
 - **Cron interno (agendador)** — o agente agenda tarefas autônomas (`agendar`, `listar_agendamentos`, `cancelar_agendamento`); o daemon `pixi run agendador` executa os vencidos no grafo e notifica um webhook opcional (`AEGIS_AGENDADOR_CALLBACK_URL`).
+- **Recall de sessões anteriores** — ferramenta `pesquisar_sessoes` (paridade Hermes `session_search_tool`): descobrir por palavra-chave, rolar uma janela de mensagens e navegar por sessões recentes, tudo sobre as trajetórias já gravadas, sem custo de LLM.
+- **Lista de tarefas (todo)** — ferramenta `tarefas` (paridade Hermes `todo_tool`): decompõe tarefas complexas com status `pendente/executando/concluida/cancelada` e re-injeta as ativas após a compressão de contexto.
 - **Rate limiting resiliente** — backoff exponencial + jitter + respeito a `Retry-After`.
 
 ---
@@ -136,6 +138,7 @@ Você: CALCULE 8 * 8 com a ferramenta calculadora
 | `AEGIS_GATEWAY_PORT` | `8787` | Porta do gateway Webhook (`pixi run gateway`) |
 | `AEGIS_SUBAGENTES` | `true` | Habilita subagentes pesquisador/redator |
 | `AEGIS_AGENDAMENTOS` | `config/dados/agendamentos.jsonl` | Arquivo de persistência do cron interno |
+| `AEGIS_TAREFAS` | `config/dados/tarefas.json` | Persistência da lista de tarefas (todo) |
 | `AEGIS_AGENDADOR_INTERVALO` | `60` | Segundos entre execuções do daemon `agendador` |
 | `AEGIS_AGENDADOR_CALLBACK_URL` | *(vazio)* | Webhook notificado a cada conclusão de agendamento |
 | `AEGIS_SEARXNG_URL` | — | URL do SearXNG (alternativa à busca DDG) |
@@ -193,7 +196,7 @@ e na trajetória. Subagentes são stateless — o resultado volta ao grafo princ
 ## 🧪 Testes
 
 ```bash
-pixi run pytest          # 56 testes (grafo com LLM mock, memória, ferramentas, skills, plugins, exportador, RAG, gateway, subagentes, cron)
+pixi run pytest          # 74 testes (grafo, memória, ferramentas, skills, plugins, exportador, RAG, gateway, subagentes, cron, recall de sessões, tarefas)
 ```
 
 Cobertura: roteamento do grafo, fluxo de auto-correção (incl. limite), retomada de
@@ -211,6 +214,7 @@ O desacoplamento já permite (sem code change estrutural):
 - ✔️ **Gateway Webhook HTTP** — `pixi run gateway` expõe o grafo via REST (base para bots).
 - ✔️ **Background workers / cron** — `pixi run agendador` (daemon) executa vencidos de `config/dados/agendamentos.jsonl` com callback webhook.
 - ✔️ **Estrutura organizada (v0.5.0)** — `config/` (env + dados/estado em subpastas) e `extensions/` (skills + plugins em subpastas); tudo configurável por `AEGIS_*`.
+- ✔️ **Recall de sessões + todo (v0.6.0, paridade Hermes)** — `pesquisar_sessoes` (descobrir/rolar/navegar sobre as trajetórias) e `tarefas` (lista com re-injeção pós compressão).
 - **Sandbox Docker/SSH** — plug into `sandbox.py` (hoje subprocesso isolado).
 - **Bots Telegram/Discord/Slack** — próxima camada sobre o gateway: basta um dispatcher apontando para `processar_mensagem`.
 
