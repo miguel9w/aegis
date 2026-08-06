@@ -49,4 +49,6 @@ langchain-openai = ">=0.2.0"               # abstração ChatOpenAI (DeepSeek/Op
 openai = ">=1.40.0"                        # exceções de rate-limit/cota
 ddgs = ">=8.0.0"                           # busca web DuckDuckGo (API DDGS)
 requests = ">=2.31.0"                      # fallback SearXNG para busca web
+textual = ">=0.80.0"                       # TUI moderna (substitui o loop Live do Rich)
+linkify-it-py = ">=2.0.0"                  # plugin linkify p/ Markdown do Textual
 pytest = ">=8.0.0"                         # testes

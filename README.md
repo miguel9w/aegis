@@ -7,7 +7,7 @@
 
 O Aegis é uma arquitetura de **máquina de estados cíclica**: o modelo cognitivo decide,
 invoca ferramentas, se auto-corrige em caso de erro, compacta conversas longas e persiste
-tudo em SQLite — tudo com uma interface de terminal (TUI) em streaming baseada em `rich`.
+tudo em SQLite — tudo com uma interface de terminal (TUI) moderna em streaming baseada em `Textual`.
 
 ![Aegis](https://img.shields.io/badge/langgraph-1.x-1c3c3c?logo=langchain) ![Pixi](https://img.shields.io/badge/pixi-reproducible-%23b22222) ![Python](https://img.shields.io/badge/python-3.11-blue)
 
@@ -26,7 +26,7 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) em streaming baseada
 - **Auto-correção resiliente**: se uma ferramenta falha, o agente analisa o erro e reformula, até `AEGIS_MAX_TENTATIVAS_CORRECAO` vezes.
 - **Memória de longo prazo** (LangGraph `Store`): perfil, preferências e fatos persistidos entre sessões.
 - **Checkpoints por passo** (`SqliteSaver` em `config/dados/memoria_agente.db`) — retomada de conversas e multi-tópicos via `thread_id`.
-- **TUI Rich em streaming** via `astream_events()`: Markdown em tempo real, spinners ("Pensando…"), painéis de parâmetros/retornos de ferramentas.
+- **TUI Textual em streaming** via `astream_events()`: Markdown em tempo real, status ("Pensando…"/rodapé de tokens), painéis de parâmetros/retornos de ferramentas, entrada multiwidget.
 - **Sistema de habilidades auto-evolutivas** (`agentskills.io`): diretório `extensions/skills/` com `SKILL.md`; o agente pode **escrever novas habilidades e recarregá-las em runtime**.
 - **Plugins Python recarregáveis** (`extensions/plugins/`) — módulos com `registrar()` adicionam ferramentas sem reiniciar.
 - **Trajectory logging** (auditoria) + **exportador de datasets** ShareGPT/OpenAI (fine-tuning/RLHF).
@@ -69,7 +69,7 @@ aegis/
 ├── plugins.py         # Carregador dinâmico de plugins (extensions/plugins)
 ├── memoria.py         # SqliteSaver (checkpoints) + Store (longo prazo)
 ├── trajetoria.py      # Registro de ações (JSONL) para auditoria/MLOps
-└── tui.py             # Interface Rich baseada em streaming de eventos
+└── tui.py             # Interface Textual baseada em streaming de eventos
 
 main.py                # CLI: TUI streaming, headless, --listar-*
 ```
@@ -199,7 +199,7 @@ e na trajetória. Subagentes são stateless — o resultado volta ao grafo princ
 ## 🧪 Testes
 
 ```bash
-pixi run pytest          # 90 testes (grafo, memória/recall, memória explícita, contexto do projeto, ferramentas, skills, plugins, exportador, RAG, gateway, subagentes, cron, recall de sessões, tarefas)
+pixi run pytest          # 96 testes (grafo, memória/recall, memória explícita, contexto do projeto, TUI Textual, ferramentas, skills, plugins, exportador, RAG, gateway, subagentes, cron, recall de sessões, tarefas)
 ```
 
 Cobertura: roteamento do grafo, fluxo de auto-correção (incl. limite), retomada de
@@ -219,6 +219,7 @@ O desacoplamento já permite (sem code change estrutural):
 - ✔️ **Estrutura organizada (v0.5.0)** — `config/` (env + dados/estado em subpastas) e `extensions/` (skills + plugins em subpastas); tudo configurável por `AEGIS_*`.
 - ✔️ **Recall de sessões + todo (v0.6.0, paridade Hermes)** — `pesquisar_sessoes` (descobrir/rolar/navegar sobre as trajetórias) e `tarefas` (lista com re-injeção pós compressão).
 - ✔️ **Memória explícita + contexto do projeto (v0.7.0, paridade Hermes)** — `gerenciar_memoria` (salvar/esquecer/listar na Store) e injeção de `AGENTS.md` no prompt.
+- ✔️ **TUI Textual (v0.8.0)** — migração da interface Rich (loop `Live`+`Prompt`) para um `App` do Textual (`Header`/`VerticalScroll`/`Input`/`Footer`), mantendo o streaming por `astream_events` num worker; produtor de eventos injetável para testes headless.
 - **Sandbox Docker/SSH** — plug into `sandbox.py` (hoje subprocesso isolado).
 - **Bots Telegram/Discord/Slack** — próxima camada sobre o gateway: basta um dispatcher apontando para `processar_mensagem`.
 
