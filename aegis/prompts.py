@@ -67,6 +67,15 @@ def sistema(perfil: dict[str, Any] | None,
     if metadados:
         partes.append(f"## Metadados de sessão\n{json.dumps(metadados, ensure_ascii=False)}")
 
+    # Contexto do projeto (AGENTS.md ) — anexa regras/convenções do repo, se houver
+    try:
+        from .contexto import contexto_do_projeto
+        contexto = contexto_do_projeto()
+        if contexto:
+            partes.append(f"## Contexto do projeto\n{contexto}")
+    except Exception:  # noqa: BLE001 — contexto é otimização, nunca quebra o prompt
+        pass
+
     partes.append(
         "Responda de forma útil, coerente e factual. Seja explícito ao pedir "
         "confirmações quando faltar informação crucial."

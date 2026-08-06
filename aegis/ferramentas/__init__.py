@@ -11,6 +11,7 @@ from .basicas import ferramentas_basicas
 from ..skills import carregar_e_expor
 from ..plugins import carregar_plugins, erros_carregamento
 from ..recuperacao import pesquisar_memoria
+from ..memoria_tool import gerenciar_memoria
 from ..subagentes import delegar_pesquisa, delegar_redacao
 from ..agendador import agendar, cancelar_agendamento, listar_agendamentos
 from ..sessoes import pesquisar_sessoes
@@ -31,6 +32,7 @@ def carregar_ferramentas(config_obj: Any = None) -> list[BaseTool]:
     ferramentas: list[BaseTool] = []
     ferramentas.extend(ferramentas_basicas())
     ferramentas.append(pesquisar_memoria)  # RAG-lite sobre Store + extensions/skills
+    ferramentas.append(gerenciar_memoria)  # memória explícita salvar/esquecer/listar
     ferramentas.append(delegar_pesquisa)  # subagente pesquisador
     ferramentas.append(delegar_redacao)   # subagente redator
     ferramentas.append(agendar)  # cron interno
@@ -54,6 +56,7 @@ def recarregar_tudo(config_obj: Any = None) -> list[BaseTool]:
     ferramentas: list[BaseTool] = []
     ferramentas.extend(ferramentas_basicas())
     ferramentas.append(pesquisar_memoria)
+    ferramentas.append(gerenciar_memoria)
     ferramentas.append(delegar_pesquisa)
     ferramentas.append(delegar_redacao)
     ferramentas.append(agendar)

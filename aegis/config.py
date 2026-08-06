@@ -70,6 +70,8 @@ class Config:
         self.agendamentos_path: Path = RAIZ / os.getenv("AEGIS_AGENDAMENTOS", "config/dados/agendamentos.jsonl")
         # --- Tarefas (todo) ---
         self.tarefas_path: Path = RAIZ / os.getenv("AEGIS_TAREFAS", "config/dados/tarefas.json")
+        # --- Contexto do projeto (AGENTS.md) ---
+        self.contexto_path: Path = RAIZ / os.getenv("AEGIS_CONTEXTO", "AGENTS.md")
         self.agendador_intervalo: int = int(os.getenv("AEGIS_AGENDADOR_INTERVALO", "60"))
         self.agendador_callback: str = os.getenv("AEGIS_AGENDADOR_CALLBACK_URL", "").strip()
 

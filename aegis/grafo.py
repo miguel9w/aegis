@@ -53,6 +53,8 @@ def montar_grafo(
     cfg = cfg or _config_global
     if store is not None:
         definir_store(store)  # vincula a Store à ferramenta pesquisar_memoria
+        from .memoria_tool import definir_store as definir_store_memoria
+        definir_store_memoria(store)  # e à ferramenta gerenciar_memoria
     if cfg.subagentes_ativos:
         configurar_subagentes(llm, cfg)  # constrói os subagentes (agent-as-tool)
 

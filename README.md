@@ -36,6 +36,8 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) em streaming baseada
 - **Cron interno (agendador)** — o agente agenda tarefas autônomas (`agendar`, `listar_agendamentos`, `cancelar_agendamento`); o daemon `pixi run agendador` executa os vencidos no grafo e notifica um webhook opcional (`AEGIS_AGENDADOR_CALLBACK_URL`).
 - **Recall de sessões anteriores** — ferramenta `pesquisar_sessoes` (paridade Hermes `session_search_tool`): descobrir por palavra-chave, rolar uma janela de mensagens e navegar por sessões recentes, tudo sobre as trajetórias já gravadas, sem custo de LLM.
 - **Lista de tarefas (todo)** — ferramenta `tarefas` (paridade Hermes `todo_tool`): decompõe tarefas complexas com status `pendente/executando/concluida/cancelada` e re-injeta as ativas após a compressão de contexto.
+- **Memória explícita e curada** — ferramenta `gerenciar_memoria` (paridade Hermes `memory_tool`): `salvar`/`esquecer`/`listar` fatos duráveis na mesma Store que o recall lê (notas do agente ou perfil do usuário), tornando o que o agente grava imediatamente recuperável.
+- **Contexto do projeto (`AGENTS.md`)** — o prompt de sistema anexa automaticamente as regras e convenções do repositório lidas de `AGENTS.md` (paridade Hermes), truncadas a 4000 chars e configuráveis por `AEGIS_CONTEXTO`.
 - **Rate limiting resiliente** — backoff exponencial + jitter + respeito a `Retry-After`.
 
 ---
@@ -139,6 +141,7 @@ Você: CALCULE 8 * 8 com a ferramenta calculadora
 | `AEGIS_SUBAGENTES` | `true` | Habilita subagentes pesquisador/redator |
 | `AEGIS_AGENDAMENTOS` | `config/dados/agendamentos.jsonl` | Arquivo de persistência do cron interno |
 | `AEGIS_TAREFAS` | `config/dados/tarefas.json` | Persistência da lista de tarefas (todo) |
+| `AEGIS_CONTEXTO` | `AGENTS.md` | Arquivo de contexto do projeto injetado no prompt |
 | `AEGIS_AGENDADOR_INTERVALO` | `60` | Segundos entre execuções do daemon `agendador` |
 | `AEGIS_AGENDADOR_CALLBACK_URL` | *(vazio)* | Webhook notificado a cada conclusão de agendamento |
 | `AEGIS_SEARXNG_URL` | — | URL do SearXNG (alternativa à busca DDG) |
@@ -196,7 +199,7 @@ e na trajetória. Subagentes são stateless — o resultado volta ao grafo princ
 ## 🧪 Testes
 
 ```bash
-pixi run pytest          # 74 testes (grafo, memória, ferramentas, skills, plugins, exportador, RAG, gateway, subagentes, cron, recall de sessões, tarefas)
+pixi run pytest          # 90 testes (grafo, memória/recall, memória explícita, contexto do projeto, ferramentas, skills, plugins, exportador, RAG, gateway, subagentes, cron, recall de sessões, tarefas)
 ```
 
 Cobertura: roteamento do grafo, fluxo de auto-correção (incl. limite), retomada de
@@ -215,6 +218,7 @@ O desacoplamento já permite (sem code change estrutural):
 - ✔️ **Background workers / cron** — `pixi run agendador` (daemon) executa vencidos de `config/dados/agendamentos.jsonl` com callback webhook.
 - ✔️ **Estrutura organizada (v0.5.0)** — `config/` (env + dados/estado em subpastas) e `extensions/` (skills + plugins em subpastas); tudo configurável por `AEGIS_*`.
 - ✔️ **Recall de sessões + todo (v0.6.0, paridade Hermes)** — `pesquisar_sessoes` (descobrir/rolar/navegar sobre as trajetórias) e `tarefas` (lista com re-injeção pós compressão).
+- ✔️ **Memória explícita + contexto do projeto (v0.7.0, paridade Hermes)** — `gerenciar_memoria` (salvar/esquecer/listar na Store) e injeção de `AGENTS.md` no prompt.
 - **Sandbox Docker/SSH** — plug into `sandbox.py` (hoje subprocesso isolado).
 - **Bots Telegram/Discord/Slack** — próxima camada sobre o gateway: basta um dispatcher apontando para `processar_mensagem`.
 
