@@ -82,6 +82,8 @@ class TuiAegis(App[None]):
         self.ultimo_tps = 0.0
         self.ultimos_tokens = 0
         self.ultimas_ferramentas: list[dict] = []
+        # último erro do turno (loop de recursão, falha de rede etc.)
+        self.ultimo_erro: str | None = None
 
     # ------------------------------------------------------------------ widgets
     def compose(self) -> ComposeResult:
@@ -232,7 +234,7 @@ class TuiAegis(App[None]):
                     elif acao == "limpar":
                         self._limpar_chat("")
                     elif acao == "novo":
-                        self._limpar_chat("(nova sessão)")
+                        self._nova_sessao()
                 else:
                     self.chat.mount(Markdown(f"**Aegis:** {resultado}"))
                 self.chat.scroll_end(animate=False)
@@ -243,6 +245,7 @@ class TuiAegis(App[None]):
         self.ultima_resposta = ""
         self.ultima_rodape = ""
         self.ultimas_ferramentas = []
+        self.ultimo_erro = None
         self.chat.mount(Markdown(f"**Você:** {pergunta}"))
         self.chat.scroll_end(animate=False)
         self.status.update("Pensando…")
@@ -269,7 +272,7 @@ class TuiAegis(App[None]):
         return None
 
     def action_novo_chat(self) -> None:
-        self._limpar_chat("(nova sessão)")
+        self._nova_sessao()
 
     def action_limpar_chat(self) -> None:
         self._limpar_chat("")
@@ -303,6 +306,21 @@ class TuiAegis(App[None]):
         self.ultima_resposta = ""
         self.ultima_rodape = ""
         self.ultimas_ferramentas = []
+        self.ultimo_erro = None
+        self._atualizar_statusbar()
+
+    def _nova_sessao(self) -> None:
+        """Nova sessão: limpa o chat E troca o thread_id (novo histórico).
+
+        Sem isso, o checkpointer do LangGraph reutiliza o thread antigo e
+        cada reinício carrega todo o histórico acumulado — foi o que causou
+        o contexto gigante (input_tokens na casa dos milhões) no pico.
+        """
+        self._limpar_chat("")
+        import uuid
+        self.cfg.thread_id = f"tui-{uuid.uuid4().hex[:8]}"
+        self.status.update(f"(nova sessão · thread {self.cfg.thread_id})")
+        self._atualizar_painel()
         self._atualizar_statusbar()
 
     def _alternar_painel(self) -> None:
@@ -367,7 +385,7 @@ class TuiAegis(App[None]):
                     texto_final += f"\n\n{saida or '(sem saída)'}"
                     painel.update(texto_final)
                 elif kind == "erro":
-                    bloco.update(f"⚠️ **erro no turno:** {quadro.get('texto', '?')}")
+                    self.ultimo_erro = quadro.get("texto", "erro desconhecido")
                     self.notify("Erro no turno — veja o chat", severity="error")
                 self.ultimos_tokens = tokens
                 self.ultima_duracao = time.monotonic() - inicio
@@ -375,9 +393,20 @@ class TuiAegis(App[None]):
                     tokens / self.ultima_duracao if self.ultima_duracao > 0 else 0.0)
                 self._atualizar_statusbar()
                 self.chat.scroll_end(animate=False)
+        except Exception as exc:  # noqa: BLE001 — erro de turno não derruba a TUI
+            self.ultimo_erro = str(exc)
+            self.notify("Turno interrompido — veja o chat", severity="error")
         finally:
             resposta = "".join(buffer)
-            bloco.update(resposta or "*(sem resposta)*")
+            if self.ultimo_erro:
+                bloco.update(
+                    (resposta or "")
+                    + "\n\n"
+                    + f"⚠️ **turno interrompido:** {self.ultimo_erro}"
+                    + "\n\n_Dica: `/novo` ou Ctrl+N inicia uma sessão limpa "
+                    "(novo thread); `/ajuda` lista comandos._")
+            else:
+                bloco.update(resposta or "*(sem resposta)*")
             self.ultima_resposta = resposta
             duracao = time.monotonic() - inicio
             contagem = tokens or (len(resposta) // 4 if resposta else 0)
@@ -413,7 +442,11 @@ class TuiAegis(App[None]):
                 yield frame
             return
 
-        configurar = {"configurable": {"thread_id": self.cfg.thread_id}}
+        configurar = {
+            "configurable": {"thread_id": self.cfg.thread_id},
+            # limite de recursão (loop agente↔ferramentas); default 50 via limites.json
+            "recursion_limit": getattr(self.cfg, "recursion_limit", 50),
+        }
         entrada = {
             "mensagens": [HumanMessage(pergunta)],
             "metadados_sessao": {"thread_id": self.cfg.thread_id},

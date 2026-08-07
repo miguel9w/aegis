@@ -52,6 +52,10 @@ def sistema(perfil: dict[str, Any] | None,
         "chame a ferramenta apropriada — não invente dados.\n"
         "- Se uma ferramenta falhar, avalie a mensagem de erro e tente reformular "
         "a chamada (o sistema já reexecuta automaticamente).\n"
+        "- Para criar arquivos grandes, prefira escrever em blocos pequenos com "
+        "comandos curtos — nunca tente gerar o arquivo inteiro em um único comando.\n"
+        "- Se a MESMA ferramenta falhar 3 vezes seguidas com o mesmo erro, pare e "
+        "responda com o que já foi concluído, explicando a limitação.\n"
         "- Quando a tarefa estiver concluída, dê a resposta final clara e objetiva."
     )
     partes.append(regras)

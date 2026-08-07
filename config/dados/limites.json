@@ -4,5 +4,6 @@
   "limite_resultado": 8000,
   "limite_trecho_sessao": 300,
   "limite_truncamento_tui": 2000,
-  "busy_timeout_ms": 2000
+  "busy_timeout_ms": 2000,
+  "recursion_limit": 50
 }

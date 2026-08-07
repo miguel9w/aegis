@@ -235,7 +235,7 @@ def test_bindings_teclado_limpar_e_novo():
             await pilot.press("ctrl+n")
             await pilot.pause()
             assert len(list(app.chat.children)) == 0
-            assert "(nova sessão)" in str(app.status.render())
+            assert "nova sessão" in str(app.status.render())
 
     asyncio.run(main())
 
@@ -253,5 +253,41 @@ def test_frame_erro_notifica_e_mostra_no_bloco():
                 await pilot.pause()
             assert app.ultima_resposta == ""
             assert app.ultimos_tokens == 0
+            assert app.ultimo_erro == "timeout na rede"
+
+    asyncio.run(main())
+
+
+def test_turno_captura_excecao_do_grafo():
+    """GraphRecursionError/limite de recursão não derruba mais o worker."""
+    async def gerar():
+        yield {"tipo": "token", "texto": "metade da resposta"}
+        raise RuntimeError("Recursion limit of 25 reached without stop")
+
+    app = _montar(gerar)
+
+    async def main():
+        async with app.run_test() as pilot:
+            app.enviar("oi")
+            for _ in range(30):
+                await pilot.pause()
+            assert app.ultimo_erro and "Recursion limit" in app.ultimo_erro
+            assert app.ultima_resposta == "metade da resposta"  # parcial mantida
+            # o Markdown não expõe texto via render; o bloco de resposta continua montado
+            assert len(list(app.chat.query(Markdown))) == 2  # pergunta + bloco
+
+    asyncio.run(main())
+
+
+def test_nova_sessao_troca_thread_id():
+    app = _montar(_produtor_texto())
+    original = app.cfg.thread_id
+
+    async def main():
+        async with app.run_test() as pilot:
+            app.enviar("/novo")
+            await pilot.pause()
+            assert app.cfg.thread_id != original
+            assert app.cfg.thread_id.startswith("tui-")
 
     asyncio.run(main())

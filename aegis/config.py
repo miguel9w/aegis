@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from .config_json import carregar_config_json as _cfg_json
+
 from dotenv import load_dotenv
 
 # Diretório raiz do projeto (pasta que contém o pacote `aegis`)
@@ -43,6 +45,9 @@ class Config:
         # --- Sessão / persistência ---
         self.thread_id: str = os.getenv("AEGIS_THREAD_ID", "default")
         self.banco: Path = RAIZ / os.getenv("AEGIS_DB", "config/dados/memoria_agente.db")
+        # Limite de recursão do grafo (loop agente↔ferramentas); vem de limites.json
+        self.recursion_limit: int = int(
+            _cfg_json("limites.json", {"recursion_limit": 50})["recursion_limit"])
 
         # --- Gestão de contexto ---
         self.limiar_compressao: int = int(os.getenv("AEGIS_LIMIAR_COMPRESSAO", "20"))

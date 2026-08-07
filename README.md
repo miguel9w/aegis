@@ -25,7 +25,8 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) moderna em streaming
   - `no_compressao_contexto` — resume histórico antigo para controlar tokens em conversas longas.
 - **Auto-correção resiliente**: se uma ferramenta falha, o agente analisa o erro e reformula, até `AEGIS_MAX_TENTATIVAS_CORRECAO` vezes.
 - **Memória de longo prazo** (LangGraph `Store`): perfil, preferências e fatos persistidos entre sessões.
-- **Checkpoints por passo** (`SqliteSaver` em `config/dados/memoria_agente.db`) — retomada de conversas e multi-tópicos via `thread_id`.
+- **Checkpoints por passo** (`SqliteSaver` em `config/dados/memoria_agente.db`) — retomada de conversas e multi-tópicos via `thread_id`. **`/novo` ou Ctrl+N inicia uma sessão limpa** (novo `thread_id`, sem arrastar o histórico acumulado de execuções anteriores).
+- **Tolerante a falhas** — um turno que estoure (ex.: `GraphRecursionError`, rede cair) não derruba mais a TUI: mostra aviso no chat com a resposta parcial e o limite de recursão do grafo é configurável em `config/dados/limites.json` (`recursion_limit`, default 50).
 - **TUI Textual em streaming** via `astream_events()`: Markdown em tempo real, status ("Pensando…"/rodapé de tokens), painéis de parâmetros/retornos de ferramentas, entrada multiwidget.
 - **Sistema de habilidades auto-evolutivas** (`agentskills.io`): diretório `extensions/skills/` com `SKILL.md`; o agente pode **escrever novas habilidades e recarregá-las em runtime**.
 - **Plugins Python recarregáveis** (`extensions/plugins/`) — módulos com `registrar()` adicionam ferramentas sem reiniciar.
