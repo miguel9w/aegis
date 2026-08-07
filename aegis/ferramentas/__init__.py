@@ -20,6 +20,11 @@ from ..papeis import definir_papel, especificar_tarefa, estruturar_tarefa, lista
 from ..memoria_camel import consultar_memoria_camel, esquecer_memoria_camel, registrar_memoria_camel
 from ..camel_kit import (anotar, atualizar_plano, pensar, planejar_tarefa,
                          ver_notas, ver_pensamento, ver_plano)
+from ..cientificas import (buscar_papers_arxiv, gerar_citacao_bibtex,
+                           revisar_literatura, salvar_paper)
+from ..obsidian import (buscar_notas, criar_nota, ler_nota, ligar_nota,
+                        limpar_obsidian, listar_obsidian, notas_conectadas,
+                        notas_por_tag)
 
 # Cache em nível de módulo (recarregado sob demanda)
 _cache_ferramentas: list[BaseTool] | None = None
@@ -59,6 +64,18 @@ def carregar_ferramentas(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(ver_plano)
     ferramentas.append(anotar)
     ferramentas.append(ver_notas)
+    ferramentas.append(buscar_papers_arxiv)  # científico (arXiv)
+    ferramentas.append(gerar_citacao_bibtex)
+    ferramentas.append(salvar_paper)
+    ferramentas.append(revisar_literatura)
+    ferramentas.append(criar_nota)  # vault Obsidian
+    ferramentas.append(ler_nota)
+    ferramentas.append(ligar_nota)
+    ferramentas.append(buscar_notas)
+    ferramentas.append(notas_por_tag)
+    ferramentas.append(notas_conectadas)
+    ferramentas.append(listar_obsidian)
+    ferramentas.append(limpar_obsidian)
     ferramentas.extend(carregar_e_expor(cfg.skills_dir))
     ferramentas.extend(carregar_plugins())
 
@@ -98,6 +115,18 @@ def recarregar_tudo(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(ver_plano)
     ferramentas.append(anotar)
     ferramentas.append(ver_notas)
+    ferramentas.append(buscar_papers_arxiv)
+    ferramentas.append(gerar_citacao_bibtex)
+    ferramentas.append(salvar_paper)
+    ferramentas.append(revisar_literatura)
+    ferramentas.append(criar_nota)
+    ferramentas.append(ler_nota)
+    ferramentas.append(ligar_nota)
+    ferramentas.append(buscar_notas)
+    ferramentas.append(notas_por_tag)
+    ferramentas.append(notas_conectadas)
+    ferramentas.append(listar_obsidian)
+    ferramentas.append(limpar_obsidian)
     ferramentas.extend(_expor(cfg.skills_dir))
     ferramentas.extend(_reload())
     _cache_ferramentas = ferramentas
