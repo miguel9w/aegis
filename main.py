@@ -68,6 +68,18 @@ def novo_argumentos() -> ArgumentParser:
     p.add_argument("--agendador-uma-vez", action="store_true", dest="agenda_uma_vez",
                    help="Executa os agendamentos vencidos uma única vez e sai.")
     p.add_argument("--versao", action="store_true", help="Mostra a versão do Aegis.")
+    p.add_argument("--comando", default=None, metavar="SLASH",
+                   help="Executa um comando de barra (ex.: \"/notas\") e sai.")
+    p.add_argument("--papeis", nargs="?", const="", default=None, metavar="[NOME]",
+                   help="Lista os papéis; com NOME, define o papel ativo.")
+    p.add_argument("--memoria", nargs="?", const="", default=None, metavar="[CONSULTA]",
+                   help="Consulta a memória pontuada (sem argumento: últimos registros).")
+    p.add_argument("--plano", action="store_true", help="Mostra o plano de tarefas atual.")
+    p.add_argument("--notas", nargs="?", const="", default=None, metavar="[N]",
+                   help="Lista as notas recentes (N opcional).")
+    p.add_argument("--papers", default=None, metavar="CONSULTA",
+                   help="Busca papers no arXiv.")
+    p.add_argument("--obsidian", action="store_true", help="Lista as notas do vault Obsidian.")
     return p
 
 
@@ -254,7 +266,44 @@ def main(argv: list[str] | None = None) -> int:
         console.print(f"[bold green]Aegis[/] [cyan]v{__version__}[/]")
         return 0
 
-    # Ferramentas são necessárias para listar e para rodar
+    # Comandos de barra e ações auxiliares — sem montar o grafo
+    if args.comando is not None:
+        from aegis.slash import executar_slash, parsear_slash
+        par = parsear_slash(args.comando)
+        if par is None:
+            console.print("[red]⚠ --comando espera algo como \"/notas\"[/]")
+            return 1
+        nome, arg = par
+        console.print(executar_slash(nome, arg))
+        return 0
+    if args.papeis is not None:
+        from aegis.slash import executar_slash
+        if args.papeis:
+            console.print(executar_slash("definir_papel", args.papeis))
+        else:
+            console.print(executar_slash("papeis", ""))
+        return 0
+    if args.memoria is not None:
+        from aegis.slash import executar_slash
+        console.print(executar_slash("memoria", args.memoria))
+        return 0
+    if args.plano:
+        from aegis.slash import executar_slash
+        console.print(executar_slash("plano", ""))
+        return 0
+    if args.notas is not None:
+        from aegis.slash import executar_slash
+        console.print(executar_slash("notas", args.notas))
+        return 0
+    if args.papers is not None:
+        from aegis.slash import executar_slash
+        console.print(executar_slash("buscar_paper", args.papers))
+        return 0
+    if args.obsidian:
+        from aegis.obsidian import listar_obsidian_vault
+        console.print(listar_obsidian_vault())
+        return 0
+
     ferramentas = carregar_ferramentas()
 
     if args.listar_ferramentas:

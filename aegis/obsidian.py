@@ -65,6 +65,14 @@ def _conteudo_nota(arquivo: Path) -> str:
         return ""
 
 
+def _titulo(texto: str, padrao: str) -> str:
+    """Título exibido: primeiro '# Título' do arquivo, senão o nome base."""
+    for linha in (texto or "").splitlines():
+        if linha.startswith("# "):
+            return linha[2:].strip()
+    return padrao
+
+
 def recalcular_indice(vault: Path) -> dict[str, Any]:
     """Índice: por nota — links emitidos, tags e backlinks (derivados)."""
     notas = _notas_no_vault(vault)
@@ -83,6 +91,7 @@ def recalcular_indice(vault: Path) -> dict[str, Any]:
         "notas": {
             nome: {
                 "arquivo": str(arquivo.relative_to(vault)),
+                "titulo": _titulo(_conteudo_nota(arquivo), nome),
                 "links": sorted(links[nome]),
                 "tags": sorted(tags[nome]),
                 "backlinks": sorted(backlinks[nome]),
@@ -143,6 +152,8 @@ def criar_nota_obsidian(nome: str, conteudo: str, pasta: str = "") -> str:
     vault = Path(config.obsidian_dir)
     if _caminho_nota(nome, vault) is not None:
         raise ValueError(f"a nota '{nome}' já existe no vault")
+    if not conteudo.lstrip().startswith("#"):
+        conteudo = f"# {nome}\n\n{conteudo}"  # H1 vira o título exibido (índice)
     alvo = _escrever(nome, pasta, conteudo, vault)
     return f"Nota criada: {alvo}"
 
@@ -172,13 +183,15 @@ def ligar_nota_obsidian(de: str, para: str) -> str:
 
 def buscar_nota_obsidian(palavra: str) -> str:
     vault = Path(config.obsidian_dir)
+    indice = _carregar_indice(vault).get("notas", {})
     achados: list[str] = []
     for nome, arquivo in sorted(_notas_no_vault(vault).items()):
         texto = _conteudo_nota(arquivo)
         if palavra.lower() in nome.lower() or palavra.lower() in texto.lower():
             pos = texto.lower().find(palavra.lower())
             trecho = texto[max(0, pos - 40): pos + 60].replace("\n", " ")
-            achados.append(f"- {nome}: …{trecho}…")
+            titulo = indice.get(nome, {}).get("titulo", nome)
+            achados.append(f"- {titulo}: …{trecho}…")
     return "\n".join(achados) if achados else "(nenhuma nota encontrada)"
 
 
@@ -189,7 +202,11 @@ def notas_por_tag_obsidian(tag: str) -> str:
     achadas = [nome for nome, meta in indice.items() if tag in meta.get("tags", [])]
     if not achadas:
         return f"(nenhuma nota com a tag #{tag})"
-    return "Notas com #" + tag + ":\n" + "\n".join(f"- {n}" for n in sorted(achadas))
+    linhas = [f"Notas com #{tag}:"]
+    for nome in sorted(achadas):
+        titulo = indice.get(nome, {}).get("titulo", nome)
+        linhas.append(f"- {titulo}")
+    return "\n".join(linhas)
 
 
 def notas_conectadas_obsidian(nome: str) -> str:

@@ -25,6 +25,12 @@ export-openai = "python main.py --exportar-openai"      # config/dados/trajetori
 gateway = "python main.py --gateway"         # serve o grafo via Webhook HTTP
 agendador = "python main.py --agendador"     # loop do cron interno (executa vencidos)
 agendador_uma_vez = "python main.py --agendador-uma-vez"  # roda vencidos uma vez e sai
+papeis = "python main.py --papeis"           # lista papéis / --papeis NOME define o ativo
+memoria = "python main.py --memoria"         # memória pontuada (--memoria consulta)
+plano = "python main.py --plano"             # plano de tarefas corrente
+notas = "python main.py --notas"             # notas recentes
+papers = "python main.py --papers"           # busca no arXiv (--papers consulta)
+obsidian = "python main.py --obsidian"       # árvore do vault Obsidian
 
 # ---------------------------------------------------------------------
 # Dependências conda (binários nativos + runtime)

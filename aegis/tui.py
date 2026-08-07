@@ -97,6 +97,30 @@ class TuiAegis(App[None]):
 
     def enviar(self, pergunta: str) -> None:
         """Inicia um turno: mostra a pergunta e dispara o streaming em um worker."""
+        # Slash commands — resolvidos localmente, sem LLM
+        if pergunta.startswith("/"):
+            from .slash import executar_slash, parsear_slash
+
+            par = parsear_slash(pergunta)
+            if par is not None:
+                nome, arg = par
+                self.chat.mount(Markdown(f"**Você:** {pergunta}"))
+                resultado = executar_slash(nome, arg)
+                if resultado.startswith("@@ACAO:"):
+                    acao = resultado.split(":", 1)[1].strip()
+                    if acao == "sair":
+                        self.exit(0)
+                    elif acao == "limpar":
+                        self.chat.remove_children()
+                        self.status.update("")
+                    elif acao == "novo":
+                        self.chat.remove_children()
+                        self.status.update("(nova sessão)")
+                else:
+                    self.chat.mount(Markdown(f"**Aegis:** {resultado}"))
+                self.chat.scroll_end(animate=False)
+                self.status.update("")
+                return
         self.ultima_resposta = ""
         self.ultima_rodape = ""
         self.chat.mount(Markdown(f"**Você:** {pergunta}"))
