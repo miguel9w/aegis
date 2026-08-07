@@ -26,8 +26,12 @@ from typing import Any
 from langchain_core.tools import tool
 
 VALIDOS = {"pendente", "executando", "concluida", "cancelada"}
-LIMITE_CONTEUDO = 4000  # chars por item (como MAX_TODO_CONTENT_CHARS do Hermes)
-LIMITE_ITENS = 256      # máx de itens (como MAX_TODO_ITEMS do Hermes)
+# Limites configuráveis via config/dados/tarefas_config.json
+from .config_json import carregar_config_json as _ccj
+
+_TAREFAS_CFG = _ccj("tarefas_config.json", {"limite_conteudo": 4000, "limite_itens": 256})
+LIMITE_CONTEUDO = int(_TAREFAS_CFG["limite_conteudo"])  # chars por item (como Hermes)
+LIMITE_ITENS = int(_TAREFAS_CFG["limite_itens"])        # máx de itens (como Hermes)
 _CABECALHO_REINJECAO = "[Sua lista de tarefas ativa foi preservada na compressão de contexto]"
 
 

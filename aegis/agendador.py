@@ -25,7 +25,13 @@ from typing import Any
 import requests
 from langchain_core.tools import tool
 
-DEFAULT_FREQUENCIAS = ("nenhuma", "horaria", "diaria", "semanal")
+from .config_json import carregar_config_json as _cfg_json
+
+# Frequências do cron-configuráveis via config/dados/agendador_config.json
+_AGENDADOR_CFG = _cfg_json("agendador_config.json", {
+    "frequencias": ["nenhuma", "horaria", "diaria", "semanal"],
+})
+DEFAULT_FREQUENCIAS = tuple(_AGENDADOR_CFG["frequencias"])
 
 _ESTADOS_VALIDOS = ("agendado", "executando", "concluido", "falhou", "cancelado")
 

@@ -34,8 +34,10 @@ from langchain_core.tools import tool
 _TIPOS_MENSAGEM = ("mensagem_usuario", "mensagem_agente")
 # Rótulo humano exibido em cada trecho recuperado.
 _ROTULO = {"mensagem_usuario": "usuario", "mensagem_agente": "aegis"}
-# Limite de caracteres de cada trecho devolvido.
-_LIMITE_TRECHO = 300
+# Limite de caracteres de cada trecho devolvido — configurável em limites.json
+from .config_json import carregar_config_json as _cfg_json
+
+_LIMITE_TRECHO = int(_cfg_json("limites.json", {"limite_trecho_sessao": 300})["limite_trecho_sessao"])
 # Sessões cuja thread sugere automatização (agendador/subagente) ficam fora da NAVEGAR.
 _FONTES_AUTOMATIZADA = ("subagente", "agendador", "cron")
 # Palavras que não contribuem para o ranqueamento.

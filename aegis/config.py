@@ -18,6 +18,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 # Carrega .env se existir (silencioso se não houver)
 load_dotenv(RAIZ / "config" / "env" / ".env")
 
+
 # Sinalizador global de modo verboso (--dev)
 def _dev() -> bool:
     return os.getenv("AEGIS_DEV", "false").strip().lower() in {"1", "true", "yes"}
@@ -77,6 +78,28 @@ class Config:
 
         # --- Busca web alterna (SearXNG) ---
         self.searxng_url: str = os.getenv("AEGIS_SEARXNG_URL", "").strip().rstrip("/")
+
+        # --- JSON de configuração (externaliza hardcodes) e estado CAMEL ---
+        self.dados_dir: Path = RAIZ / os.getenv("AEGIS_DADOS_DIR", "config/dados")
+        self.limites_config_path: Path = RAIZ / os.getenv("AEGIS_LIMITES", "config/dados/limites.json")
+        self.tarefas_config_path: Path = RAIZ / os.getenv("AEGIS_TAREFAS_CONFIG", "config/dados/tarefas_config.json")
+        self.agendador_config_path: Path = RAIZ / os.getenv("AEGIS_AGENDADOR_CONFIG", "config/dados/agendador_config.json")
+        # Papéis (roles) e especificação de tarefa
+        self.papeis_config_path: Path = RAIZ / os.getenv("AEGIS_PAPEIS", "config/dados/papeis.json")
+        self.papel_ativo_path: Path = RAIZ / os.getenv("AEGIS_PAPEL_ATIVO", "config/dados/papel_ativo.json")
+        self.tarefa_atual_path: Path = RAIZ / os.getenv("AEGIS_TAREFA_ATUAL", "config/dados/tarefa_atual.json")
+        # Memória pontuada (estilo CAMEL)
+        self.memoria_camel_path: Path = RAIZ / os.getenv("AEGIS_MEMORIA_CAMEL", "config/dados/memoria_camel.json")
+        self.memoria_camel_config_path: Path = RAIZ / os.getenv(
+            "AEGIS_MEMORIA_CAMEL_CONFIG", "config/dados/memoria_camel_config.json")
+        # Toolkits CAMEL (thinking/task-planning/note-taking)
+        self.pensamento_path: Path = RAIZ / os.getenv("AEGIS_PENSAMENTO", "config/dados/pensamento_atual.json")
+        self.plano_tarefas_path: Path = RAIZ / os.getenv("AEGIS_PLANO_TAREFAS", "config/dados/plano_tarefas.json")
+        self.notas_path: Path = RAIZ / os.getenv("AEGIS_NOTAS", "config/dados/notas.json")
+        # Features científicas (arXiv) + vault estilo Obsidian
+        self.biblioteca_path: Path = RAIZ / os.getenv("AEGIS_BIBLIOTECA", "config/dados/biblioteca.json")
+        self.arxiv_max_resultados: int = int(os.getenv("AEGIS_ARXIV_MAX_RESULTADOS", "5"))
+        self.obsidian_dir: Path = RAIZ / os.getenv("AEGIS_OBSIDIAN_DIR", "config/dados/obsidian")
 
         # --- Diversos ---
         self.dev: bool = _dev()

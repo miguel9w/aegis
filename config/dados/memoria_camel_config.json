@@ -1,0 +1,6 @@
+{
+  "peso_importancia": 1.0,
+  "meia_vida_dias": 7,
+  "k_padrao": 3,
+  "n_max_registros": 100
+}

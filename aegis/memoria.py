@@ -18,6 +18,11 @@ from pathlib import Path
 
 from .config import ConfigError
 
+from .config_json import carregar_config_json as _cfg_json
+
+# Timeout de busy (ms) — configurável via config/dados/limites.json
+_BUSY_TIMEOUT_MS = int(_cfg_json("limites.json", {"busy_timeout_ms": 2000})["busy_timeout_ms"])
+
 
 # Cache de conexões por caminho — checkpointer e store COMPARTILHAM a mesma
 # conexão, evitando 'database is locked' por disputa entre duas conexões.
@@ -40,7 +45,7 @@ def _conexao(caminho: str | Path) -> sqlite3.Connection:
     Path(caminho).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(chave, check_same_thread=False, isolation_level=None)
     conn.execute("PRAGMA journal_mode=WAL")   # leitura/escrita concorrentes
-    conn.execute("PRAGMA busy_timeout=2000")  # aguarda lock brevemente
+    conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")  # aguarda lock brevemente
     conn.execute("PRAGMA synchronous=NORMAL")
     _conexoes[chave] = conn
     return conn
@@ -87,7 +92,7 @@ async def criar_checkpointer_async(caminho: str | Path):
         ) from exc
     conn = await aiosqlite.connect(str(caminho))
     await conn.execute("PRAGMA journal_mode=WAL")
-    await conn.execute("PRAGMA busy_timeout=2000")
+    await conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
     saver = AsyncSqliteSaver(conn=conn)
     await saver.setup()
     return saver

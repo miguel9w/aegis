@@ -16,8 +16,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from .config import config
+from .config_json import carregar_config_json
 
-LIMITE_CONTEXTO = 4000  # chars (teto prudente para não inflar o prompt)
+# Limite do contexto do projeto — configurável via config/dados/limites.json
+_LIMITES = carregar_config_json("limites.json", {"limite_contexto": 4000})
+LIMITE_CONTEXTO = int(_LIMITES["limite_contexto"])  # chars (teto prudente)
 
 
 def ler_contexto(caminho: str | Path) -> str:

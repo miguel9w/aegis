@@ -27,6 +27,10 @@ from textual.containers import VerticalScroll
 from textual.widgets import Footer, Header, Input, Markdown, Static
 
 from .config import Config
+from .config_json import carregar_config_json as _cfg_json
+
+# Truncamento de saídas na TUI — configurável via config/dados/limites.json
+_LIMITE_TRUNC = int(_cfg_json("limites.json", {"limite_truncamento_tui": 2000})["limite_truncamento_tui"])
 
 _CSS = """
 #chat { height: 1fr; border: round $accent; padding: 0 1; }
@@ -133,7 +137,7 @@ class TuiAegis(App[None]):
                 elif kind == "tool_fim":
                     painel = ferramentas_abertas.pop(quadro.get("id"), None)
                     nome = quadro.get("nome", "?")
-                    saida = quadro.get("saida", "")[:2000]
+                    saida = quadro.get("saida", "")[:_LIMITE_TRUNC]
                     self.ultima_saida = saida
                     if painel is None:
                         painel = Markdown("")
@@ -182,7 +186,7 @@ class TuiAegis(App[None]):
             elif kind == "on_tool_end":
                 saida = evento.get("data") or {}
                 obj = saida.get("output")
-                texto = str(getattr(obj, "content", obj))[:2000]
+                texto = str(getattr(obj, "content", obj))[:_LIMITE_TRUNC]
                 yield {
                     "tipo": "tool_fim",
                     "nome": getattr(obj, "name", "") or evento.get("name") or "?",

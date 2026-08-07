@@ -1,0 +1,5 @@
+{
+  "frequencias": ["nenhuma", "horaria", "diaria", "semanal"],
+  "intervalo": 60,
+  "callback": ""
+}

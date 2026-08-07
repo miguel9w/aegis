@@ -38,7 +38,14 @@ from .prompts import extrair_memoria, reflexao_auto_correcao, resumir_historico,
 # Helpers
 # ---------------------------------------------------------------------
 
-_LIMITE_RESULTADO = 8000  # truncamento de resultados no estado
+from .config_json import carregar_config_json as _cfg_json
+
+_LIMITES = _cfg_json("limites.json", {
+    "limite_resultado": 8000,
+    "limite_trecho_llm": 4000,
+})
+_LIMITE_RESULTADO = int(_LIMITES["limite_resultado"])   # truncamento de resultados no estado
+_LIMITE_TRECHO_LLM = int(_LIMITES["limite_trecho_llm"])  # trecho re-injetado ao LLM
 
 
 def _eh_erro(mensagem: BaseMessage) -> bool:
@@ -58,7 +65,8 @@ def _extrair_erros(mensagens: list[BaseMessage]) -> list[str]:
     return [str(m.content) for m in mensagens if isinstance(m, ToolMessage) and _eh_erro(m)]
 
 
-def _trecho_para_llm(mensagens: list[BaseMessage], limite: int = 4000) -> str:
+def _trecho_para_llm(mensagens: list[BaseMessage], limite: int | None = None) -> str:
+    limite = limite or _LIMITE_TRECHO_LLM
     linhas = []
     total = 0
     for m in reversed(mensagens):
@@ -172,7 +180,7 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
 
     # ---- 4. Compressão de contexto --------------------------------------
     def _resumir(mensagens_antigas: list[BaseMessage], resumo_anterior: str) -> str:
-        trecho = _trecho_para_llm(mensagens_antigas, limite=6000)
+        trecho = _trecho_para_llm(mensagens_antigas, limite=_LIMITE_TRECHO_LLM + 2000)
         try:
             resp = com_retry(lambda: llm.invoke([
                 SystemMessage(resumir_historico()),
