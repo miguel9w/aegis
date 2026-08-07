@@ -2,8 +2,8 @@
 Construção do Prompt de Sistema e dos prompts auxiliares (pt-BR).
 
 O sistema injeta dinamicamente: identidade, perfil do usuário (memória
-de longo prazo), resumo de contexto comprimido e o catálogo de ferramentas
-disponíveis.
+de longo prazo), resumo de contexto comprimido, catálogo de ferramentas,
+contexto do projeto (AGENTS.md), papel ativo e tarefa especificada (CAMEL).
 """
 
 from __future__ import annotations
@@ -67,13 +67,22 @@ def sistema(perfil: dict[str, Any] | None,
     if metadados:
         partes.append(f"## Metadados de sessão\n{json.dumps(metadados, ensure_ascii=False)}")
 
-    # Contexto do projeto (AGENTS.md ) — anexa regras/convenções do repo, se houver
+    # Contexto do projeto (AGENTS.md) — anexa regras/convenções do repo, se houver
     try:
         from .contexto import contexto_do_projeto
         contexto = contexto_do_projeto()
         if contexto:
             partes.append(f"## Contexto do projeto\n{contexto}")
     except Exception:  # noqa: BLE001 — contexto é otimização, nunca quebra o prompt
+        pass
+
+    # Papel ativo + tarefa especificada (estilo CAMEL) — se configurados
+    try:
+        from .papeis import montar_bloco_personalidade
+        bloco_personalidade = montar_bloco_personalidade()
+        if bloco_personalidade:
+            partes.append(bloco_personalidade)
+    except Exception:  # noqa: BLE001 — persona é otimização, nunca quebra o prompt
         pass
 
     partes.append(

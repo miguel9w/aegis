@@ -16,6 +16,7 @@ from ..subagentes import delegar_pesquisa, delegar_redacao
 from ..agendador import agendar, cancelar_agendamento, listar_agendamentos
 from ..sessoes import pesquisar_sessoes
 from ..tarefas import tarefas
+from ..papeis import definir_papel, especificar_tarefa, estruturar_tarefa, listar_papeis, ver_papel
 
 # Cache em nível de módulo (recarregado sob demanda)
 _cache_ferramentas: list[BaseTool] | None = None
@@ -40,6 +41,11 @@ def carregar_ferramentas(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(cancelar_agendamento)
     ferramentas.append(pesquisar_sessoes)  # recall de sessões passadas (Hermes)
     ferramentas.append(tarefas)  # todo/planejamento (Hermes)
+    ferramentas.append(definir_papel)  # papel ativo (CAMEL role-playing)
+    ferramentas.append(ver_papel)
+    ferramentas.append(listar_papeis)
+    ferramentas.append(especificar_tarefa)  # task specification (CAMEL)
+    ferramentas.append(estruturar_tarefa)
     ferramentas.extend(carregar_e_expor(cfg.skills_dir))
     ferramentas.extend(carregar_plugins())
 
@@ -64,6 +70,11 @@ def recarregar_tudo(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(cancelar_agendamento)
     ferramentas.append(pesquisar_sessoes)
     ferramentas.append(tarefas)
+    ferramentas.append(definir_papel)
+    ferramentas.append(ver_papel)
+    ferramentas.append(listar_papeis)
+    ferramentas.append(especificar_tarefa)
+    ferramentas.append(estruturar_tarefa)
     ferramentas.extend(_expor(cfg.skills_dir))
     ferramentas.extend(_reload())
     _cache_ferramentas = ferramentas
