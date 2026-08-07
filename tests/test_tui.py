@@ -2,7 +2,7 @@
 
 import asyncio
 
-from textual.widgets import Input, Markdown
+from textual.widgets import Input, Markdown, Static
 
 from aegis.tui import TuiAegis
 
@@ -109,3 +109,149 @@ def test_pergunta_vazia_ignorada():
 
     asyncio.run(main())
     assert app.ultima_resposta == ""
+
+
+# ======================================================================
+# Polimento estilo Hermes: painel lateral, statusbar, modo RAW, bindings
+# ======================================================================
+
+def test_painel_lateral_mostra_estado():
+    app = _montar(_produtor_texto())
+
+    async def main():
+        async with app.run_test() as pilot:
+            assert app.query_one("#painel") is not None
+            conteudo = str(app.painel.query_one(Static).render())
+            assert "fake" in conteudo            # modelo
+            assert "teste" in conteudo           # sessão/thread
+            assert "Ferramentas" in conteudo
+            await pilot.pause()
+
+    asyncio.run(main())
+
+
+def test_statusbar_mostra_metricas_apos_turno():
+    app = _rodar(_montar(_produtor_texto("Olá, mundo!")))
+
+    async def main():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+    asyncio.run(main())
+    # dentro do run_test para garantir DOM montado
+    async def ver():
+        async with app.run_test() as pilot:
+            conteudo = str(app.statusbar.render())
+            assert "tok/s" in conteudo
+            assert "fake" in conteudo            # modelo
+            await pilot.pause()
+    asyncio.run(ver())
+
+
+def test_meta_do_turno_montada_no_chat():
+    app = _montar(_produtor_texto("Oi!"))
+
+    async def main():
+        async with app.run_test() as pilot:
+            app.enviar("oi")
+            for _ in range(40):
+                await pilot.pause()
+            metas = [w for w in app.chat.query(Static) if "meta" in w.classes]
+            assert len(metas) >= 1
+            texto = str(metas[0].render())
+            assert "⏱" in texto and "tok/s" in texto
+
+    asyncio.run(main())
+
+
+def test_modo_raw_alterna_e_usa_static():
+    app = _montar(_produtor_texto("resposta crua"))
+    assert app.modo_raw is False
+
+    async def main():
+        async with app.run_test() as pilot:
+            app.enviar("/modo")
+            await pilot.pause()
+            assert app.modo_raw is True
+            app.enviar("oi")
+            for _ in range(40):
+                await pilot.pause()
+            # a resposta do turno raw vive num Static, não num Markdown
+            statics = [str(s.render()) for s in app.chat.query(Static)]
+            assert any("resposta crua" in t for t in statics), "bloco raw esperado"
+            markdowns = [str(m.render()) for m in app.chat.query(Markdown)]
+            assert all("resposta crua" not in t for t in markdowns), \
+                "resposta não deve ser markdown em modo raw"
+            app.enviar("/modo")
+            await pilot.pause()
+            assert app.modo_raw is False
+
+    asyncio.run(main())
+
+
+def test_modelo_alterado_via_slash():
+    app = _montar(_produtor_texto())
+    assert app.cfg.modelo == "fake"
+
+    async def main():
+        async with app.run_test() as pilot:
+            app.enviar("/modelo gpt-5")
+            await pilot.pause()
+            assert app.cfg.modelo == "gpt-5"
+
+    asyncio.run(main())
+
+
+def test_turno_registra_ferramenta_no_painel():
+    app = _rodar(_montar(_produtor_texto("usando ferramenta", tools=("calcular",))))
+    assert app.chamadas_ferramenta == 1
+    assert app.ultimas_ferramentas[0]["nome"] == "calcular"
+    assert app.ultimas_ferramentas[0]["status"] == "ok"
+
+    async def main():
+        async with app.run_test() as pilot:
+            conteudo = str(app.painel.query_one(Static).render())
+            assert "calcular" in conteudo
+            await pilot.pause()
+
+    asyncio.run(main())
+
+
+def test_bindings_teclado_limpar_e_novo():
+    app = _montar(_produtor_texto())
+
+    async def main():
+        async with app.run_test() as pilot:
+            app.enviar("oi")
+            for _ in range(20):
+                await pilot.pause()
+            assert len(list(app.chat.children)) > 0
+            await pilot.press("ctrl+l")
+            await pilot.pause()
+            assert len(list(app.chat.children)) == 0
+            app.enviar("oi de novo")
+            for _ in range(20):
+                await pilot.pause()
+            await pilot.press("ctrl+n")
+            await pilot.pause()
+            assert len(list(app.chat.children)) == 0
+            assert "(nova sessão)" in str(app.status.render())
+
+    asyncio.run(main())
+
+
+def test_frame_erro_notifica_e_mostra_no_bloco():
+    async def gerar():
+        yield {"tipo": "erro", "texto": "timeout na rede"}
+
+    app = _montar(gerar)
+
+    async def main():
+        async with app.run_test() as pilot:
+            app.enviar("oi")
+            for _ in range(30):
+                await pilot.pause()
+            assert app.ultima_resposta == ""
+            assert app.ultimos_tokens == 0
+
+    asyncio.run(main())
