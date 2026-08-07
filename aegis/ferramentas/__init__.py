@@ -18,6 +18,8 @@ from ..sessoes import pesquisar_sessoes
 from ..tarefas import tarefas
 from ..papeis import definir_papel, especificar_tarefa, estruturar_tarefa, listar_papeis, ver_papel
 from ..memoria_camel import consultar_memoria_camel, esquecer_memoria_camel, registrar_memoria_camel
+from ..camel_kit import (anotar, atualizar_plano, pensar, planejar_tarefa,
+                         ver_notas, ver_pensamento, ver_plano)
 
 # Cache em nível de módulo (recarregado sob demanda)
 _cache_ferramentas: list[BaseTool] | None = None
@@ -50,6 +52,13 @@ def carregar_ferramentas(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(registrar_memoria_camel)  # memória pontuada (CAMEL)
     ferramentas.append(consultar_memoria_camel)
     ferramentas.append(esquecer_memoria_camel)
+    ferramentas.append(pensar)  # toolkits CAMEL (thinking/planning/notes)
+    ferramentas.append(ver_pensamento)
+    ferramentas.append(planejar_tarefa)
+    ferramentas.append(atualizar_plano)
+    ferramentas.append(ver_plano)
+    ferramentas.append(anotar)
+    ferramentas.append(ver_notas)
     ferramentas.extend(carregar_e_expor(cfg.skills_dir))
     ferramentas.extend(carregar_plugins())
 
@@ -82,6 +91,13 @@ def recarregar_tudo(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(registrar_memoria_camel)
     ferramentas.append(consultar_memoria_camel)
     ferramentas.append(esquecer_memoria_camel)
+    ferramentas.append(pensar)
+    ferramentas.append(ver_pensamento)
+    ferramentas.append(planejar_tarefa)
+    ferramentas.append(atualizar_plano)
+    ferramentas.append(ver_plano)
+    ferramentas.append(anotar)
+    ferramentas.append(ver_notas)
     ferramentas.extend(_expor(cfg.skills_dir))
     ferramentas.extend(_reload())
     _cache_ferramentas = ferramentas
