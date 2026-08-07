@@ -39,6 +39,14 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) moderna em streaming
 - **Memória explícita e curada** — ferramenta `gerenciar_memoria` (paridade Hermes `memory_tool`): `salvar`/`esquecer`/`listar` fatos duráveis na mesma Store que o recall lê (notas do agente ou perfil do usuário), tornando o que o agente grava imediatamente recuperável.
 - **Contexto do projeto (`AGENTS.md`)** — o prompt de sistema anexa automaticamente as regras e convenções do repositório lidas de `AGENTS.md` (paridade Hermes), truncadas a 4000 chars e configuráveis por `AEGIS_CONTEXTO`.
 - **Rate limiting resiliente** — backoff exponencial + jitter + respeito a `Retry-After`.
+- **Papéis (role-playing CAMEL)** — ferramentas `definir_papel`/`ver_papel`/`listar_papeis` trocam a persona (assistente, pesquisador, redator, planejador — configuráveis em `config/dados/papeis.json`); o papel ativo e a **tarefa especificada** (`especificar_tarefa`/`estruturar_tarefa`) são injetados no prompt de sistema.
+- **Memória pontuada estilo CAMEL** — `registrar_memoria_camel`/`consultar_memoria_camel`/`esquecer_memoria_camel`: registros com importância 0–10, pontuação heurística (recência × importância × overlap lexical) e recuperação top-k.
+- **Toolkits CAMEL** — `pensar`/`ver_pensamento` (thinking), `planejar_tarefa`/`atualizar_plano`/`ver_plano` (task-planning) e `anotar`/`ver_notas` (note-taking).
+- **Configuração por JSON** — 5 arquivos em `config/dados/` (`limites.json`, `tarefas_config.json`, `agendador_config.json`, `papeis.json`, `memoria_camel_config.json`) externalizam hardcodes (limites de contexto/resultado, busy_timeout, frequências, personas) com fallback seguro.
+- **27 slash commands (`/`)** — dispatcher local na TUI e `main.py --comando "/..."`: `/ajuda, /status, /papeis, /definir_papel, /planejar, /plano, /marcar, /notas, /memoria, /salvar_memoria, /esquecer, /marcar, /criar_nota, /buscar_nota, /tag, /buscar_paper, /bibtex, /revisar, /obsidian…`
+- **Features científicas** — busca na API do **arXiv** (`buscar_papers_arxiv`, `revisar_literatura`), **BibTeX** e citação **APA** determinísticos (`gerar_citacao_bibtex`) e biblioteca local em `config/dados/biblioteca.json` (`salvar_paper`).
+- **Banco estilo Obsidian** — `aegis/obsidian.py`: vault de notas `.md` (subpastas, tags `#tag`, `[[wikilinks]]` bidirecionais com backlinks e grafo em `indice.json`); ferramentas `criar_nota`/`ler_nota`/`ligar_nota`/`buscar_notas`/`notas_por_tag`/`notas_conectadas`/`listar_obsidian`/`limpar_obsidian`.
+- **Comandos de terminal** — `pixi run papeis | memoria | plano | notas | papers | obsidian` para operar papéis, memória, planos, notas, arXiv e vault direto do shell.
 
 ---
 
@@ -47,11 +55,14 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) moderna em streaming
 ```
 config/
 ├── env/                  # variáveis de ambiente (.env gitignored + .env.example)
-└── dados/                # estado em runtime (gitignored)
+└── dados/                # estado em runtime + config JSON versionado
     ├── memoria_agente.db     # checkpoints + store de longo prazo
     ├── trajetorias/          # auditoria JSONL (base p/ datasets)
     ├── datasets/             # exportações ShareGPT/OpenAI
-    └── agendamentos.jsonl    # cron interno
+    ├── agendamentos.jsonl    # cron interno
+    ├── obsidian/             # vault de notas markdown (wikilinks)
+    ├── biblioteca.json       # papers salvos (arXiv)
+    └── *.json                # configuração JSON (limites, tarefas, papeis…)
 
 extensions/
 ├── skills/               # habilidades agentskills.io (SKILL.md auto-evolutivos)
