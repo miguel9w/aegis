@@ -30,7 +30,8 @@ memoria = "python main.py --memoria"         # memória pontuada (--memoria cons
 plano = "python main.py --plano"             # plano de tarefas corrente
 notas = "python main.py --notas"             # notas recentes
 papers = "python main.py --papers"           # busca no arXiv (--papers consulta)
-obsidian = "python main.py --obsidian"       # árvore do vault Obsidian
+obsidian = "python main.py --obsidian"  # lista o vault de notas Obsidian
+prompts = "python main.py --prompts"   # lista os prompts avançados (APF)
 
 # ---------------------------------------------------------------------
 # Dependências conda (binários nativos + runtime)

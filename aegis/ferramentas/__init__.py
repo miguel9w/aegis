@@ -25,6 +25,8 @@ from ..cientificas import (buscar_papers_arxiv, gerar_citacao_bibtex,
 from ..obsidian import (buscar_notas, criar_nota, ler_nota, ligar_nota,
                         limpar_obsidian, listar_obsidian, notas_conectadas,
                         notas_por_tag)
+from ..prompts_avancados import (listar_prompts_avancados, usar_prompt_avancado,
+                                 ver_prompt_avancado)
 
 # Cache em nível de módulo (recarregado sob demanda)
 _cache_ferramentas: list[BaseTool] | None = None
@@ -76,6 +78,9 @@ def carregar_ferramentas(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(notas_conectadas)
     ferramentas.append(listar_obsidian)
     ferramentas.append(limpar_obsidian)
+    ferramentas.append(listar_prompts_avancados)  # prompt avançado (APF)
+    ferramentas.append(usar_prompt_avancado)
+    ferramentas.append(ver_prompt_avancado)
     ferramentas.extend(carregar_e_expor(cfg.skills_dir))
     ferramentas.extend(carregar_plugins())
 
@@ -127,6 +132,9 @@ def recarregar_tudo(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(notas_conectadas)
     ferramentas.append(listar_obsidian)
     ferramentas.append(limpar_obsidian)
+    ferramentas.append(listar_prompts_avancados)  # prompt avançado (APF)
+    ferramentas.append(usar_prompt_avancado)
+    ferramentas.append(ver_prompt_avancado)
     ferramentas.extend(_expor(cfg.skills_dir))
     ferramentas.extend(_reload())
     _cache_ferramentas = ferramentas

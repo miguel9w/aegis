@@ -80,6 +80,8 @@ def novo_argumentos() -> ArgumentParser:
     p.add_argument("--papers", default=None, metavar="CONSULTA",
                    help="Busca papers no arXiv.")
     p.add_argument("--obsidian", action="store_true", help="Lista as notas do vault Obsidian.")
+    p.add_argument("--prompts", action="store_true",
+                   help="Lista os prompts avançados (APF) disponíveis.")
     return p
 
 
@@ -302,6 +304,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.obsidian:
         from aegis.obsidian import listar_obsidian_vault
         console.print(listar_obsidian_vault())
+        return 0
+    if args.prompts:
+        from aegis.prompts_avancados import listar_prompts
+        console.print(listar_prompts())
         return 0
 
     ferramentas = carregar_ferramentas()

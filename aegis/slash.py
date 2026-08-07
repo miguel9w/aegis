@@ -66,6 +66,8 @@ _registrar("salvar_paper", "<id> — salva paper (biblioteca+vault)")
 _registrar("bibtex", "<id> — citação BibTeX de paper salvo")
 _registrar("revisar", "<consulta> — revisão de literatura")
 _registrar("obsidian", "Lista o vault Obsidian (árvore por subpasta)")
+_registrar("prompt", "[id|nenhum] — ativa/mostra o prompt avançado (APF)")
+_registrar("prompts", "Lista os prompts avançados disponíveis (APF)")
 
 
 def parsear_slash(texto: str) -> tuple[str, str] | None:
@@ -167,6 +169,20 @@ def _EXECUTOR(nome: str, arg: str) -> str:
     if nome == "obsidian":
         from .obsidian import listar_obsidian_vault
         return listar_obsidian_vault()
+    if nome == "prompts":
+        from .prompts_avancados import listar_prompts
+        return listar_prompts()
+    if nome == "prompt":
+        from .prompts_avancados import (desativar_prompt, prompt_ativo_id,
+                                        usar_prompt, ver_prompt)
+        if not arg:
+            id_ativo = prompt_ativo_id()
+            if not id_ativo:
+                return "nenhum prompt avançado ativo (veja /prompts)"
+            return ver_prompt(id_ativo)
+        if arg in ("nenhum", "off"):
+            return desativar_prompt()
+        return usar_prompt(arg)
     return f"comando /{nome} não tem executor"
 
 

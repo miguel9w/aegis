@@ -43,10 +43,11 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) moderna em streaming
 - **Memória pontuada estilo CAMEL** — `registrar_memoria_camel`/`consultar_memoria_camel`/`esquecer_memoria_camel`: registros com importância 0–10, pontuação heurística (recência × importância × overlap lexical) e recuperação top-k.
 - **Toolkits CAMEL** — `pensar`/`ver_pensamento` (thinking), `planejar_tarefa`/`atualizar_plano`/`ver_plano` (task-planning) e `anotar`/`ver_notas` (note-taking).
 - **Configuração por JSON** — 5 arquivos em `config/dados/` (`limites.json`, `tarefas_config.json`, `agendador_config.json`, `papeis.json`, `memoria_camel_config.json`) externalizam hardcodes (limites de contexto/resultado, busy_timeout, frequências, personas) com fallback seguro.
-- **27 slash commands (`/`)** — dispatcher local na TUI e `main.py --comando "/..."`: `/ajuda, /status, /papeis, /definir_papel, /planejar, /plano, /marcar, /notas, /memoria, /salvar_memoria, /esquecer, /marcar, /criar_nota, /buscar_nota, /tag, /buscar_paper, /bibtex, /revisar, /obsidian…`
+- **29 slash commands (`/`)** — dispatcher local na TUI e `main.py --comando "/..."`: `/ajuda, /status, /papeis, /definir_papel, /planejar, /plano, /marcar, /notas, /memoria, /salvar_memoria, /esquecer, /marcar, /criar_nota, /buscar_nota, /tag, /buscar_paper, /bibtex, /revisar, /obsidian, /prompt, /prompts…`
 - **Features científicas** — busca na API do **arXiv** (`buscar_papers_arxiv`, `revisar_literatura`), **BibTeX** e citação **APA** determinísticos (`gerar_citacao_bibtex`) e biblioteca local em `config/dados/biblioteca.json` (`salvar_paper`).
 - **Banco estilo Obsidian** — `aegis/obsidian.py`: vault de notas `.md` (subpastas, tags `#tag`, `[[wikilinks]]` bidirecionais com backlinks e grafo em `indice.json`); ferramentas `criar_nota`/`ler_nota`/`ligar_nota`/`buscar_notas`/`notas_por_tag`/`notas_conectadas`/`listar_obsidian`/`limpar_obsidian`.
-- **Comandos de terminal** — `pixi run papeis | memoria | plano | notas | papers | obsidian` para operar papéis, memória, planos, notas, arXiv e vault direto do shell.
+- **Comandos de terminal** — `pixi run papeis | memoria | plano | notas | papers | obsidian | prompts` para operar papéis, memória, planos, notas, arXiv, vault e prompts avançados direto do shell.
+- **Formato de Prompt Avançado (APF)** — fichas `.apf` (JSON5-lite: JSON + comentários `//`/`#` + vírgulas pendentes + variáveis `${chave}`) que compõem um bloco injetável no prompt de sistema: sistema, instruções, restrições, formato de saída e exemplos. Ative com `/prompt <id>` (persistido) e veja exemplos auto-documentados em `config/prompts_avancados/`.
 
 ---
 
@@ -55,14 +56,15 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) moderna em streaming
 ```
 config/
 ├── env/                  # variáveis de ambiente (.env gitignored + .env.example)
-└── dados/                # estado em runtime + config JSON versionado
-    ├── memoria_agente.db     # checkpoints + store de longo prazo
-    ├── trajetorias/          # auditoria JSONL (base p/ datasets)
-    ├── datasets/             # exportações ShareGPT/OpenAI
-    ├── agendamentos.jsonl    # cron interno
-    ├── obsidian/             # vault de notas markdown (wikilinks)
-    ├── biblioteca.json       # papers salvos (arXiv)
-    └── *.json                # configuração JSON (limites, tarefas, papeis…)
+├── dados/                # estado em runtime + config JSON versionado
+│   ├── memoria_agente.db     # checkpoints + store de longo prazo
+│   ├── trajetorias/          # auditoria JSONL (base p/ datasets)
+│   ├── datasets/             # exportações ShareGPT/OpenAI
+│   ├── agendamentos.jsonl    # cron interno
+│   ├── obsidian/             # vault de notas markdown (wikilinks)
+│   ├── biblioteca.json       # papers salvos (arXiv)
+│   └── *.json                # configuração JSON (limites, tarefas, papeis…)
+└── prompts_avancados/     # fichas de prompt avançado (.apf — versionadas)
 
 extensions/
 ├── skills/               # habilidades agentskills.io (SKILL.md auto-evolutivos)
@@ -206,6 +208,38 @@ e um subconjunto de ferramentas:
 O agente principal decide quando delegar (via `delegar_pesquisa` /
 `delegar_redacao`); cada delegação é registrada no painel de ferramentas da TUI
 e na trajetória. Subagentes são stateless — o resultado volta ao grafo principal.
+
+## 🧠 Formato de Prompt Avançado (APF)
+
+Arquivos `.apf` (em `config/prompts_avancados/`) são **JSON5-lite**: todo JSON
+válido, mais comentários de linha (`//` e `#`), vírgulas pendentes e variáveis
+`${chave}` interpoladas do bloco `variaveis`. Cada ficha compõe um bloco que é
+**injetado por último no prompt de sistema** quando ativo (persistido em
+`config/dados/prompt_ativo.json`).
+
+```apf
+{
+  "id": "revisor-codigo",        // obrigatório — usado em /prompt <id>
+  "versao": "1.0.0",             // opcional (default 1.0.0)
+  "descricao": "Revisão de código com foco em bugs.",
+  "sistema": "Você é um revisor sênior. Contexto: ${contexto}",
+  "instrucoes": ["Aponte bugs com trecho exato.", "Sugira a correção mínima."],
+  "variaveis": { "contexto": "avalie o impacto em produção" },
+  "restricoes": ["Nunca invente APIs."],
+  "formato_saida": { "tipo": "markdown", "secoes": ["Problemas", "Sugestões"] },
+  "exemplos": [{ "entrada": "x = y + 1", "saida": "correto" }]
+}
+```
+
+Uso:
+
+- `pixi run prompts` — lista as fichas válidas (e avisa fichas quebradas);
+- `/prompt <id>` / `/prompt nenhum` — ativa/desativa (TUI ou `--comando`);
+- `main.py --prompts` — lista via CLI;
+- tools do agente: `usar_prompt_avancado`, `ver_prompt_avancado`, `listar_prompts_avancados`.
+
+Exemplos completos e auto-documentados: `config/prompts_avancados/revisor-codigo.apf`
+e `config/prompts_avancados/pesquisa-profunda.apf`.
 
 ## 🧪 Testes
 

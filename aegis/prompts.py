@@ -85,6 +85,15 @@ def sistema(perfil: dict[str, Any] | None,
     except Exception:  # noqa: BLE001 — persona é otimização, nunca quebra o prompt
         pass
 
+    # Prompt avançado ativo (formato APF) — bloco compilado injetado por último
+    try:
+        from .prompts_avancados import prompt_ativo_compilado
+        bloco_apf = prompt_ativo_compilado()
+        if bloco_apf:
+            partes.append(bloco_apf)
+    except Exception:  # noqa: BLE001 — APF é otimização, nunca quebra o prompt
+        pass
+
     partes.append(
         "Responda de forma útil, coerente e factual. Seja explícito ao pedir "
         "confirmações quando faltar informação crucial."

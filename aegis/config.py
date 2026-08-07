@@ -100,6 +100,9 @@ class Config:
         self.biblioteca_path: Path = RAIZ / os.getenv("AEGIS_BIBLIOTECA", "config/dados/biblioteca.json")
         self.arxiv_max_resultados: int = int(os.getenv("AEGIS_ARXIV_MAX_RESULTADOS", "5"))
         self.obsidian_dir: Path = RAIZ / os.getenv("AEGIS_OBSIDIAN_DIR", "config/dados/obsidian")
+        # Formato de prompt avançado (.apf) — fichas versionadas + estado ativo
+        self.prompts_avancados_dir: Path = RAIZ / os.getenv("AEGIS_PROMPTS_DIR", "config/prompts_avancados")
+        self.prompt_ativo_path: Path = RAIZ / os.getenv("AEGIS_PROMPT_ATIVO", "config/dados/prompt_ativo.json")
 
         # --- Diversos ---
         self.dev: bool = _dev()

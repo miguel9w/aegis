@@ -17,6 +17,16 @@ config/dados/memoria_agente.db-*
 config/dados/trajetorias/
 config/dados/agendamentos.jsonl
 config/dados/tarefas.json
+# estado CAMEL/APF/científicas/vault (runtime — não versionar)
+config/dados/papel_ativo.json
+config/dados/tarefa_atual.json
+config/dados/pensamento_atual.json
+config/dados/plano_tarefas.json
+config/dados/notas.json
+config/dados/memoria_camel.json
+config/dados/prompt_ativo.json
+config/dados/biblioteca.json
+config/dados/obsidian/
 
 # Artefatos gerados
 config/dados/datasets/
