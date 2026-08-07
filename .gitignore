@@ -29,6 +29,8 @@ config/dados/biblioteca.json
 config/dados/obsidian/
 
 # Artefatos gerados
+log.log
+.hermes/
 config/dados/datasets/
 dist/
 build/
