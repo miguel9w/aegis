@@ -17,6 +17,7 @@ from ..agendador import agendar, cancelar_agendamento, listar_agendamentos
 from ..sessoes import pesquisar_sessoes
 from ..tarefas import tarefas
 from ..papeis import definir_papel, especificar_tarefa, estruturar_tarefa, listar_papeis, ver_papel
+from ..memoria_camel import consultar_memoria_camel, esquecer_memoria_camel, registrar_memoria_camel
 
 # Cache em nível de módulo (recarregado sob demanda)
 _cache_ferramentas: list[BaseTool] | None = None
@@ -46,6 +47,9 @@ def carregar_ferramentas(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(listar_papeis)
     ferramentas.append(especificar_tarefa)  # task specification (CAMEL)
     ferramentas.append(estruturar_tarefa)
+    ferramentas.append(registrar_memoria_camel)  # memória pontuada (CAMEL)
+    ferramentas.append(consultar_memoria_camel)
+    ferramentas.append(esquecer_memoria_camel)
     ferramentas.extend(carregar_e_expor(cfg.skills_dir))
     ferramentas.extend(carregar_plugins())
 
@@ -75,6 +79,9 @@ def recarregar_tudo(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(listar_papeis)
     ferramentas.append(especificar_tarefa)
     ferramentas.append(estruturar_tarefa)
+    ferramentas.append(registrar_memoria_camel)
+    ferramentas.append(consultar_memoria_camel)
+    ferramentas.append(esquecer_memoria_camel)
     ferramentas.extend(_expor(cfg.skills_dir))
     ferramentas.extend(_reload())
     _cache_ferramentas = ferramentas
