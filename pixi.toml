@@ -4,7 +4,7 @@
 # =====================================================================
 [workspace]
 name = "aegis"
-version = "0.1.0"
+version = "0.11.0"
 description = "Project Aegis — Agente Pessoal Autônomo (LangGraph + Pixi + Rich)"
 authors = ["Miguel <miguel.bett.pandini@gmail.com>"]
 channels = ["conda-forge"]
