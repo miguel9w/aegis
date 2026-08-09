@@ -1,70 +1,171 @@
 /**
  * Aegis Web UI — servidor Bun (:8788).
  *
- * W1: serve o front, /api/healthz e gerencia o ciclo de vida da ponte Python.
- * W4+: fila FIFO de jobs, POST /api/mensagem → 202 job_id, GET /api/stream
- * (SSE com :open + :ping), descarte de órfãos e reinício da ponte.
+ * W4: fila FIFO de jobs, POST /api/mensagem → 202 {job_id},
+ * GET /api/stream?job_id= → SSE com :open (HTTP 200 imediato) e keepalive
+ * `: ping` (o DeepSeek fica mudo durante o reasoning — sem o keepalive o
+ * proxy derruba o stream). server.timeout(req, 0) desliga o idle do Bun.
  */
-import { Ponte } from "./bridge.ts";
+import { Ponte, type Frame } from "./bridge.ts";
+
+export interface JobSSE {
+  frames: Frame[];
+  escritores: Array<ReadableStreamDefaultController<Uint8Array>>;
+  fechado: boolean;
+}
 
 export interface OpcoesServidor {
   ponte?: Ponte;
   porta?: number;
   host?: string;
   diretorioWeb?: string;
+  intervaloPingMs?: number;
+  timeoutComandoMs?: number;
 }
+
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream; charset=utf-8",
+  "Cache-Control": "no-cache",
+  Connection: "keep-alive",
+  "X-Accel-Buffering": "no",
+};
 
 export function criarServidor(opcoes: OpcoesServidor = {}) {
   const ponte = opcoes.ponte ?? new Ponte();
-  const dir = opcoes.diretorioWeb ?? new URL(".", import.meta.url).pathname;
-  const host = opcoes.host ?? process.env.AEGIS_WEBUI_HOST ?? "127.0.0.1";
-  const porta = opcoes.porta ?? Number(process.env.AEGIS_WEBUI_PORT ?? 8788);
+  const dir = new URL(".", import.meta.url).pathname;
+  const intervaloPing = opcoes.intervaloPingMs ?? 15_000;
+  const timeoutComando = opcoes.timeoutComandoMs ?? 4_000;
+  const jobs = new Map<string, JobSSE>();
+  const enc = new TextEncoder();
 
-  const html = awaitCache(() => Bun.file(`${dir}/index.html`).text());
+  function fecharJob(jobId: string) {
+    const job = jobs.get(jobId);
+    if (!job || job.fechado) return;
+    job.fechado = true;
+    for (const w of job.escritores) {
+      try { w.close(); } catch { /* cliente já desconectou */ }
+    }
+    job.escritores = [];
+  }
+
+  ponte.quandoFrame((f) => {
+    const jobId = f.job_id;
+    if (!jobId) return;
+    let job = jobs.get(jobId);
+    if (!job) {
+      job = { frames: [], escritores: [], fechado: false };
+      jobs.set(jobId, job);
+    }
+    job.frames.push(f);
+    const dados = `data: ${JSON.stringify(f)}\n\n`;
+    for (const w of job.escritores) {
+      try { w.enqueue(enc.encode(dados)); } catch { /* cliente desconectou */ }
+    }
+    if (f.kind === "fim" || f.kind === "erro") fecharJob(jobId);
+  });
 
   const servidor = Bun.serve({
-    hostname: host,
-    port: porta,
-    async fetch(req) {
+    hostname: opcoes.host ?? process.env.AEGIS_WEBUI_HOST ?? "127.0.0.1",
+    port: opcoes.porta ?? Number(process.env.AEGIS_WEBUI_PORT ?? 8788),
+    async fetch(req, server) {
       const url = new URL(req.url);
+      const caminho = url.pathname;
 
-      // Front
-      if (url.pathname === "/" || url.pathname === "/index.html") {
-        return new Response(await html(), {
+      if (caminho === "/" || caminho === "/index.html") {
+        const html = await Bun.file(`${dir}/index.html`).text();
+        return new Response(html, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       }
 
-      // Saúde: status da ponte em tempo real (ping com timeout)
-      if (url.pathname === "/api/healthz") {
-        const ponteOk = await ponte.ping(2000);
+      if (caminho === "/api/healthz") {
+        const ponteOk = await ponte.ping(2_000);
         return Response.json({
-          status: "ok",
-          bun: Bun.version,
+          status: "ok", bun: Bun.version,
           ponte: ponteOk ? "ok" : "morto",
+          jobs: jobs.size,
         });
+      }
+
+      if (caminho === "/api/estado" || caminho === "/api/historico") {
+        const cmd = caminho.endsWith("estado") ? "estado" : "historico";
+        const resp = await ponte.comandar({ cmd }, timeoutComando);
+        const dados = resp?.dados ?? (resp?.threads ? { threads: resp.threads } : null);
+        return Response.json(dados ?? { erro: "ponte sem resposta" });
+      }
+
+      if (caminho === "/api/mensagem" && req.method === "POST") {
+        const corpo = await req.json().catch(() => null);
+        const texto = typeof corpo?.texto === "string" ? corpo.texto.trim() : "";
+        if (!texto) {
+          return Response.json({ erro: "campo 'texto' obrigatório" }, { status: 400 });
+        }
+        const jobId = `j-${crypto.randomUUID().slice(0, 8)}`;
+        const threadId = typeof corpo?.thread_id === "string" ? corpo.thread_id : "default";
+        jobs.set(jobId, { frames: [], escritores: [], fechado: false });
+        ponte.enviar({ cmd: "mensagem", job_id: jobId, texto, thread_id: threadId });
+        return Response.json({ job_id: jobId, thread_id: threadId }, { status: 202 });
+      }
+
+      if (caminho === "/api/stream") {
+        // SSE: sem idle timeout do Bun (derrubaria stream quieto)
+        try { server.timeout(req, 0); } catch { /* API tolerante */ }
+        const jobId = url.searchParams.get("job_id") ?? "";
+        if (!jobId) {
+          return Response.json({ erro: "job_id obrigatório" }, { status: 400 });
+        }
+        let job = jobs.get(jobId);
+        if (!job) {
+          job = { frames: [], escritores: [], fechado: false };
+          jobs.set(jobId, job);
+        }
+        const stream = new ReadableStream<Uint8Array>({
+          start(c) {
+            job!.escritores.push(c);
+            c.enqueue(enc.encode(": open\n\n")); // primeiro byte — HTTP 200 já visível
+            for (const f of job!.frames) {
+              c.enqueue(enc.encode(`data: ${JSON.stringify(f)}\n\n`));
+            }
+            if (job!.fechado) {
+              try { c.close(); } catch { /* já fechado */ }
+            }
+          },
+          cancel() {
+            if (job) {
+              job.escritores = job.escritores.filter((w) => w !== (stream as any).controller);
+            }
+          },
+        });
+        return new Response(stream, { headers: SSE_HEADERS });
       }
 
       return Response.json({ erro: "rota não encontrada" }, { status: 404 });
     },
   });
 
-  return { servidor, ponte };
-}
+  // keepalive: `: ping` nos jobs com cliente conectado e sem frames recentes
+  const pingJobs = setInterval(() => {
+    for (const job of jobs.values()) {
+      if (job.fechado || job.escritores.length === 0) continue;
+      for (const w of job.escritores) {
+        try { w.enqueue(enc.encode(`: ping\n\n`)); } catch { /* cliente caiu */ }
+      }
+    }
+  }, intervaloPing);
 
-/** Cache simples de leitura de arquivo (evita re-ler o HTML a cada request). */
-function awaitCache(fn: () => Promise<string>): () => Promise<string> {
-  let valor: string | null = null;
-  return async () => {
-    if (valor === null) valor = await fn();
-    return valor;
+  const stopOriginal = servidor.stop.bind(servidor);
+  (servidor as unknown as { stop: (opts?: unknown) => void }).stop = (opts?: unknown) => {
+    clearInterval(pingJobs);
+    for (const job of jobs.values()) fecharJob(job.job_id ?? "");
+    return stopOriginal(opts);
   };
+  void jobs;
+  return servidor;
 }
 
 // Execução direta: `pixi run webui`
 if (import.meta.main) {
-  const { servidor } = criarServidor();
+  const servidor = criarServidor();
   console.log(`🌐 Aegis Web UI → http://${servidor.hostname}:${servidor.port}`);
-  console.log("   encerre com Ctrl+C; a ponte Python é gerenciada pelo servidor.");
-  process.on("SIGINT", () => process.exit(0));
+  console.log(`   ponte python: ${process.env.PIXI_PROJECT_ROOT ?? "."}/.pixi/envs/default/bin/python -m aegis.webui_bridge`);
 }

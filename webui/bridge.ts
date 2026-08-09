@@ -92,6 +92,25 @@ export class Ponte {
     for (const o of this.ouvintes) o(f);
   }
 
+  /** Envia um comando e resolve com a próxima resposta do mesmo cmd (estado/historico). */
+  comandar(obj: Record<string, unknown>, timeoutMs = 4_000): Promise<Frame | null> {
+    return new Promise((resolver) => {
+      const cmd = obj.cmd as string;
+      const timer = setTimeout(() => {
+        this.ouvintes = this.ouvintes.filter((o) => o !== ouvinte);
+        resolver(null);
+      }, timeoutMs);
+      const ouvinte = (f: Frame) => {
+        if (f.cmd !== cmd) return;
+        clearTimeout(timer);
+        this.ouvintes = this.ouvintes.filter((o) => o !== ouvinte);
+        resolver(f as Frame);
+      };
+      this.ouvintes.push(ouvinte);
+      this.enviar(obj);
+    });
+  }
+
   /** Envia um comando (objeto → JSONL). */
   enviar(obj: Record<string, unknown>): void {
     if (!this.proc) this.iniciar();

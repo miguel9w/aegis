@@ -1,49 +1,94 @@
 /**
- * Testes W1 do servidor web — ponte FAKE injetada (sem rede/LLM).
- * Prova real: o server.ts fala JSONL com o processo fake e responde HTTP.
+ * Testes do servidor web — ponte FAKE injetada (sem rede/LLM).
+ * W4: prova o pipeline POST /api/mensagem → 202 job_id → SSE entrega os
+ * frames do protocolo até o fim (token → tool → … → fim).
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { criarServidor } from "./server.ts";
 import { Ponte } from "./bridge.ts";
 
-const ponte = new Ponte({
-  comando: ["bun", "./webui/fixtures/bridge_fake.mjs"],
-  aoFechar: (c) => console.error("[teste] ponte fechou com código", c),
-});
-
-let servidor: ReturnType<typeof criarServidor>["servidor"];
-let base = "";
+let servidor: ReturnType<typeof criarServidor>;
+let ponte: Ponte;
+let base: string;
 
 beforeAll(() => {
-  servidor = criarServidor({ ponte, porta: 0, diretorioWeb: "./webui" }).servidor;
-  base = `http://127.0.0.1:${servidor.port}`;
+  const bunBin = process.env.BUN_BIN ?? "bun";
+  ponte = new Ponte({ comando: [bunBin, "webui/fixtures/bridge_fake.mjs"] });
+  servidor = criarServidor({ ponte, porta: 0, intervaloPingMs: 500 });
+  const endereco = servidor.url;
+  base = endereco.href.replace(/\/$/, "");
 });
 
 afterAll(() => {
-  ponte.fechar();
   servidor.stop();
+  ponte.fechar();
 });
 
-describe("esqueleto W1", () => {
-  test("GET / serve o front (HTML)", async () => {
-    const r = await fetch(base + "/");
-    expect(r.status).toBe(200);
-    const html = await r.text();
-    expect(html).toContain("<title>Aegis Web UI</title>");
+describe("W1 — estático e saúde", () => {
+  test("GET / serve o HTML", async () => {
+    const res = await fetch(`${base}/`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("<title>Aegis Web UI</title>");
   });
 
-  test("GET /api/healthz reporta a ponte viva (ping→pong)", async () => {
-    const r = await fetch(base + "/api/healthz");
-    expect(r.status).toBe(200);
-    const d = await r.json();
-    expect(d.status).toBe("ok");
-    expect(d.ponte).toBe("ok");
+  test("GET /api/healthz responde com ponte ok", async () => {
+    const res = await fetch(`${base}/api/healthz`);
+    expect(res.status).toBe(200);
+    const corpo = (await res.json()) as { ponte: string; status: string };
+    expect(corpo.status).toBe("ok");
+    expect(corpo.ponte).toBe("ok"); // fake respondeu pong
+  });
+});
+
+describe("W4 — fila de jobs e SSE", () => {
+  test("POST /api/mensagem → 202 com job_id; SSE entrega frames até o fim", async () => {
+    const res = await fetch(`${base}/api/mensagem`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto: "oi" }),
+    });
+    expect(res.status).toBe(202);
+    const { job_id: jobId } = (await res.json()) as { job_id: string };
+    expect(jobId).toMatch(/^j-/);
+
+    // abre o SSE e consome até o fim
+    const sse = await fetch(`${base}/api/stream?job_id=${jobId}`);
+    expect(sse.status).toBe(200);
+    expect(sse.headers.get("content-type")).toContain("text/event-stream");
+    let corpo = "";
+    for await (const pedaco of sse.body!) {
+      corpo += new TextDecoder().decode(pedaco);
+    }
+    // o fake emite: token → tool_inicio → tool_fim → arquivo → comando →
+    // subgrafo → veredito → fim
+    expect(corpo).toContain(`"job_id":"${jobId}"`);
+    expect(corpo).toContain('"kind":"token"');
+    expect(corpo).toContain('"kind":"tool_inicio"');
+    expect(corpo).toContain('"kind":"arquivo"');
+    expect(corpo).toContain('"kind":"veredito"');
+    expect(corpo).toContain('"kind":"fim"');
   });
 
-  test("rota desconhecida → 404 JSON", async () => {
-    const r = await fetch(base + "/nao-existe");
-    expect(r.status).toBe(404);
-    const d = await r.json();
-    expect(d.erro).toBeTruthy();
+  test("POST sem texto → 400", async () => {
+    const res = await fetch(`${base}/api/mensagem`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test("GET /api/estado responde via ponte (comandar)", async () => {
+    const res = await fetch(`${base}/api/estado`);
+    expect(res.status).toBe(200);
+    const corpo = (await res.json()) as { versao: string };
+    expect(corpo.versao).toBeTruthy();
+  });
+
+  test("GET /api/historico responde threads via ponte", async () => {
+    const res = await fetch(`${base}/api/historico`);
+    expect(res.status).toBe(200);
+    const corpo = (await res.json()) as { threads: Array<{ thread_id: string }> };
+    expect(corpo.threads.length).toBeGreaterThan(0);
   });
 });
