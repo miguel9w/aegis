@@ -72,6 +72,17 @@ class Config:
             os.getenv("AEGIS_SUBAGENTES", "true").strip().lower() in {"1", "true", "yes"}
         )
 
+        # --- Multiagente (orquestrador + especialistas + avaliador) ---
+        self.multiagente_ativos: bool = (
+            os.getenv("AEGIS_MULTIAGENTE", "true").strip().lower() in {"1", "true", "yes"}
+        )
+        self.max_especialistas: int = int(os.getenv("AEGIS_MAX_ESPECIALISTAS", "3"))
+        self.modelo_orquestrador: str = os.getenv("AEGIS_MODELO_ORQUESTRADOR", "").strip()
+        self.modelo_avaliador: str = os.getenv("AEGIS_MODELO_AVALIADOR", "").strip()
+        self.timeout_no: int = int(os.getenv("AEGIS_TIMEOUT_NO", "120"))
+        self.orquestracoes_path: Path = RAIZ / os.getenv(
+            "AEGIS_ORQUESTRACOES", "config/dados/orquestracoes.jsonl")
+
         # --- Agendador (cron interno) ---
         self.agendamentos_path: Path = RAIZ / os.getenv("AEGIS_AGENDAMENTOS", "config/dados/agendamentos.jsonl")
         # --- Tarefas (todo) ---

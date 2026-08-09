@@ -47,6 +47,7 @@ def montar_grafo(
         cfg: Configuração (.env)
     """
     from .config import config as _config_global
+    from .multiagente import montar_multiagente, obter_subgrafo
     from .nos import _eh_erro  # detecção de erro de ferramenta
     from .recuperacao import definir_store
     from .subagentes import configurar_subagentes
@@ -103,7 +104,29 @@ def montar_grafo(
     grafo.add_node("no_compressao_contexto", nos["no_compressao_contexto"])
     grafo.add_node("no_memoria", nos["no_memoria"])
 
-    grafo.add_edge(START, "no_agente")
+    # --- Multiagente (F2): orquestrador na entrada, subgrafo por domínio ----
+    if cfg.multiagente_ativos:
+        multi = montar_multiagente(cfg)
+        grafo.add_node("no_orquestrador", multi["no_orquestrador"])
+        grafo.add_edge(START, "no_orquestrador")
+        mapeamento: dict[str, str] = {"legado": "no_agente"}
+        for dominio in multi["dominios"]:
+            no_sub = f"sub_{dominio}"
+            grafo.add_node(no_sub, obter_subgrafo(dominio, llm, ferramentas, cfg))
+            mapeamento[no_sub] = no_sub
+            grafo.add_edge(no_sub, "no_memoria")
+        grafo.add_conditional_edges(
+            "no_orquestrador",
+            multi["rota_apos_orquestrador"],
+            mapeamento,
+        )
+    else:
+        # Fluxo legado (byte-idêntico): START → no_agente diretamente.
+        # No modo multiagente QUEM decide a entrada é o orquestrador (START →
+        # no_orquestrador); a rota dele encaminha PARA no_agente quando não há
+        # domínio. As duas arestas juntas rodariam o agente principal EM
+        # PARALELO com o subgrafo — bug de execução dupla.
+        grafo.add_edge(START, "no_agente")
 
     grafo.add_conditional_edges(
         "no_agente",

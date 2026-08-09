@@ -169,3 +169,60 @@ def sistema_redator() -> str:
         "Siga qualquer requisito de formato, extensão e público dado na tarefa;\n"
         "evite repetições e encerre concluindo a ideia central."
     )
+
+
+def sistema_especialista(dominio: str, slot: str, papel: str) -> str:
+    """Prompt de um nó ESPECIALISTA do subgrafo multiagente.
+
+    O especialista recebe apenas a SUA fatia da tarefa (slot) e a sua pool de
+    ferramentas; produz o rascunho do slot em pt-BR.
+    """
+    return (
+        f"Você é o especialista '{papel}' do domínio '{dominio}' do Aegis.\n"
+        "Você recebeu UMA parte da tarefa (o seu slot). Execute apenas a sua\n"
+        "parte com profundidade e retorne o resultado em português (pt-BR),\n"
+        "de forma autocontida (quem ler o seu retorno deve conseguir usá-lo\n"
+        "sem depender de outra ferramenta).\n"
+        "Se o ambiente rejeitar um comando longo, escreva em blocos pequenos;\n"
+        f"se a mesma ferramenta falhar 3 vezes, pare e descreva o que houve.\n"
+        f"\nSlot: {slot}\nPapel: {papel}"
+    )
+
+
+def sistema_integrador() -> str:
+    """Prompt do nó INTEGRADOR: consolida os rascunhos dos especialistas."""
+    return (
+        "Você é o INTEGRADOR do Aegis. Recebeu os rascunhos produzidos por\n"
+        "especialistas independentes para a MESMA tarefa.\n"
+        "1. Verifique ligações entre as partes (interfaces, imports, nomes)\n"
+        "   e aponte conflitos brevemente;\n"
+        "2. Consolide tudo em UM único artefato final coeso, em pt-BR;\n"
+        "3. Não invente conteúdo que não esteja nos rascunhos — o avaliador\n"
+        "   julgará o que você entregar."
+    )
+
+
+def sistema_avaliador(dominio: str) -> str:
+    """Prompt do nó AVALIADOR: veredito estruturado sobre o artefato.
+
+    Deve responder ESTRITAMENTE um JSON com as chaves:
+    status ("aprovado"|"reprovado"), nota (0-5), confianca (0-1), feedback,
+    criterios_checados (lista de strings).
+    """
+    criterios: dict[str, str] = {
+        "programacao": "compila/executa, coesão entre partes, segurança, clareza",
+        "pesquisa": "evidências citadas, cobertura do tema, atribuição correta",
+        "escrita": "estrutura, coesão, extensão adequada, tom",
+        "obsidian": "notas criadas/ligadas, organização, rastreabilidade",
+        "memoria": "fatos reais e duráveis, sem invenção",
+    }
+    return (
+        "Você é o AVALIADOR do domínio '%s' do Aegis.\n"
+        "Critérios: %s.\n"
+        "Julgue o artefato consolidado da tarefa e responda ESTRITAMENTE um\n"
+        "JSON: {\"status\": \"aprovado\"|\"reprovado\", \"nota\": 0-5,\n"
+        "\"confianca\": 0-1, \"feedback\": \"...\", \"criterios_checados\": [...]}.\n"
+        "Reprovação exige feedback específico (o que faltou, onde); aprovação\n"
+        "pode ter feedback curto. Nada além do JSON."
+        % (dominio, criterios.get(dominio, criterios["escrita"]))
+    )

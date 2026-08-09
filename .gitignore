@@ -34,4 +34,6 @@ log.log
 config/dados/datasets/
 dist/
 build/
-*.egg-info/
+*.egg-info/config/dados/orquestracoes.jsonl
+
+config/dados/orquestracoes.jsonl

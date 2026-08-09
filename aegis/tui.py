@@ -81,6 +81,10 @@ class TuiAegis(App[None]):
         self.ultima_duracao = 0.0
         self.ultimo_tps = 0.0
         self.ultimos_tokens = 0
+        # orquestração multiagente do último turno (exposta p/ testes/painel)
+        self.dominio_turno = ""
+        self.vereditos_turno: list[dict] = []
+        self._ultimo_output = {}
         self.ultimas_ferramentas: list[dict] = []
         # último erro do turno (loop de recursão, falha de rede etc.)
         self.ultimo_erro: str | None = None
@@ -356,6 +360,12 @@ class TuiAegis(App[None]):
                     buffer.append(quadro.get("texto", ""))
                     tokens += 1
                     bloco.update("".join(buffer))
+                elif kind == "resposta_multi":
+                    # resposta entregue pelo multiagente via estado final
+                    # (no_entrega não emite tokens LLM)
+                    buffer.append(quadro.get("texto", ""))
+                    tokens += max(1, len(str(quadro.get("texto", ""))) // 4)
+                    bloco.update("".join(buffer))
                 elif kind == "tool_inicio":
                     idf = quadro.get("id") or f"f{self.chamadas_ferramenta}"
                     nome = quadro.get("nome", "?")
@@ -458,6 +468,13 @@ class TuiAegis(App[None]):
                 conteudo = getattr(chunk, "content", None)
                 if isinstance(conteudo, str) and conteudo:
                     yield {"tipo": "token", "texto": conteudo}
+            elif kind == "on_chain_end":
+                # Retém o OUTPUT do grafo (o mais externo vence): o multiagente
+                # entrega a resposta via estado final (orquestracao_final) e os
+                # vereditos do avaliador — sem tokens LLM para o streaming.
+                saida = (evento.get("data") or {}).get("output")
+                if isinstance(saida, dict) and saida:
+                    self._ultimo_output = saida
             elif kind == "on_tool_start":
                 dado = (evento.get("data") or {}).get("input") or {}
                 yield {
@@ -476,6 +493,15 @@ class TuiAegis(App[None]):
                     "nome": getattr(obj, "name", "") or evento.get("name") or "?",
                     "saida": texto,
                 }
+
+        # Multiagente: a resposta sai do estado final (no_entrega não emite
+        # tokens LLM); entrega como frame único e expõe a orquestração.
+        saida = self._ultimo_output
+        final = saida.get("orquestracao_final")
+        if final:
+            self.dominio_turno = saida.get("dominio") or ""
+            self.vereditos_turno = list(saida.get("vereditos") or [])
+            yield {"tipo": "resposta_multi", "texto": final}
 
     # ------------------------------------------------------------------ ciclo
     async def iniciar(self) -> None:

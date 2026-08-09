@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
@@ -9,13 +11,20 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import BaseTool
 from pydantic import PrivateAttr
 
+# Lock GLOBAL do módulo: nós paralelos (fan-out multiagente) consomem cada
+# resposta EXATAMENTE uma vez, em qualquer ordem de scheduling. Global em vez
+# de por-instância porque locks não sobrevivem a deepcopy do pydantic.
+_LOCK: threading.Lock = threading.Lock()
+
 
 class ModeloFake(BaseChatModel):
     """ChatModel determinístico — respostas scriptadas, sem rede.
 
-    Útil para testar o roteamento do grafo sem depender de API.
+    Util para testar o roteamento do grafo sem depender de API.
     Rejeita SystemMessage de prova? não — ignora tudo e devolve a
     próxima resposta scriptada.
+    Thread-safe: nós em paralelo (fan-out multiagente) consomem cada
+    resposta EXATAMENTE uma vez, em qualquer ordem de scheduling.
     """
 
     _saidas: list = PrivateAttr(default_factory=list)
@@ -32,11 +41,12 @@ class ModeloFake(BaseChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs,
     ) -> ChatResult:
-        if not self._saidas:
-            msg = AIMessage(content="")
-        else:
-            msg = self._saidas[min(self._i, len(self._saidas) - 1)]
-            self._i += 1
+        with _LOCK:
+            if not self._saidas:
+                msg = AIMessage(content="")
+            else:
+                msg = self._saidas[min(self._i, len(self._saidas) - 1)]
+                self._i += 1
         return ChatResult(generations=[ChatGeneration(message=msg)])
 
     def bind_tools(self, tools, **kwargs) -> "ModeloFake":

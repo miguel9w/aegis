@@ -15,6 +15,18 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
 
+def _merge_dict(atual: dict | None, novo: dict | None) -> dict:
+    """Reducer de merge para dicionários escritos por nós em paralelo.
+
+    Cada especialista grava a SUA chave (slot) no dict; o reducer combina as
+    escritas concorrentes em uma única visão sem sobrescrever slots alheios.
+    """
+    base = dict(atual or {})
+    if novo:
+        base.update(novo)
+    return base
+
+
 class EstadoAegis(TypedDict):
     # Histórico de conversa (reducer padrão add_messages)
     mensagens: Annotated[list[BaseMessage], add_messages]
@@ -38,3 +50,25 @@ class EstadoAegis(TypedDict):
 
     # Contador de tentativas do loop de auto-correção (limita o ciclo)
     tentativas_correcao: NotRequired[int]
+
+    # --- Orquestração multiagente (nós especialistas em paralelo) ---
+    # Domínio ativo no turno ("" = fluxo de agente único)
+    dominio: NotRequired[str]
+
+    # Divisão da tarefa em slots: [{slot, tarefa, estrategia, status}]
+    divisao: NotRequired[list[dict[str, Any]]]
+
+    # Saída por especialista: rascunhos[slot] -> conteúdo. Reducer de merge:
+    # nós paralelos escrevem chaves DIFERENTES do dict e o LangGraph precisa de
+    # um reducer para a chave em si (senão INVALID_CONCURRENT_GRAPH_UPDATE).
+    rascunhos: NotRequired[Annotated[dict[str, Any], _merge_dict]]
+
+    # Vereditos do avaliador (append-only — lição de fan-out: chave agregada
+    # com operator.add, síntese no nó a jusante)
+    vereditos: NotRequired[Annotated[list[dict[str, Any]], operator.add]]
+
+    # Artefato consolidado pelo integrador/orquestrador (resposta final multiagente)
+    orquestracao_final: NotRequired[str]
+
+    # Modo conservador (provider free: comandos curtos, estratégia rebaixada)
+    modo_conservador: NotRequired[bool]

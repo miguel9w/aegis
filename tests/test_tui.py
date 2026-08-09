@@ -30,6 +30,17 @@ def _montar(produtor):
     return TuiAegis(app=None, ferramentas=[], cfg=CfgFake(), produtor_eventos=produtor)
 
 
+def test_turno_multiagente_frame_resposta_multi():
+    """Frame resposta_multi (multiagente) vira a resposta exibida na TUI."""
+
+    async def produtor():
+        yield {"tipo": "resposta_multi", "texto": "ARTEFATO CONSOLIDADO dos especialistas"}
+
+    app = _montar(produtor)
+    _rodar(app)
+    assert app.ultima_resposta == "ARTEFATO CONSOLIDADO dos especialistas"
+
+
 def _rodar(app, turno="oi"):
     async def main():
         async with app.run_test() as pilot:

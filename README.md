@@ -33,6 +33,7 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) moderna em streaming
 - **Trajectory logging** (auditoria) + **exportador de datasets** ShareGPT/OpenAI (fine-tuning/RLHF).
 - **RAG-lite `pesquisar_memoria`** — recupera fatos da Store de longo prazo e do `extensions/skills/` com ranqueamento IDF (sem dependência pesada), injetando contexto em novas sessões.
 - **Subagentes avançados (agent-as-tool)** — o agente delega tarefas a subgrafos especialistas: `delegar_pesquisa` (pesquisador com busca web + cálculo + memória) e `delegar_redacao` (redator de texto longo), cada um com o mesmo loop de auto-correção do núcleo.
+- **Multiagente (orquestrador + especialistas + avaliador)** — pergunta com domínio reconhecido (programação, pesquisa, escrita, obsidian, memória) é dividida pelo **`no_orquestrador`** (classificador por regras, zero LLM) e executada por **3 especialistas em paralelo** (cada um com pool de ferramentas reduzida), consolidada pelo `no_integrador` e **avaliada por um LLM crítico** com veredito estruturado; reprovado → reexecução (até `max_tentativas`); aprovado → resposta consolidada. Sem domínio → fluxo clássico byte-idêntico. Detalhes e web-doc no `docs/multiagente.md`; auditoria das orquestrações em `config/dados/orquestracoes.jsonl`.
 - **Gateway Webhook HTTP** (`pixi run gateway`) — expõe o mesmo grafo via REST (POST `/mensagem`, GET `/healthz`), pronto para bots/automação.
 - **Cron interno (agendador)** — o agente agenda tarefas autônomas (`agendar`, `listar_agendamentos`, `cancelar_agendamento`); o daemon `pixi run agendador` executa os vencidos no grafo e notifica um webhook opcional (`AEGIS_AGENDADOR_CALLBACK_URL`).
 - **Recall de sessões anteriores** — ferramenta `pesquisar_sessoes` (paridade Hermes `session_search_tool`): descobrir por palavra-chave, rolar uma janela de mensagens e navegar por sessões recentes, tudo sobre as trajetórias já gravadas, sem custo de LLM.
@@ -154,6 +155,9 @@ Você: CALCULE 8 * 8 com a ferramenta calculadora
 | `AEGIS_TRAJETORIA_DIR` | `config/dados/trajetorias` | Onde o JSONL é gravado |
 | `AEGIS_GATEWAY_PORT` | `8787` | Porta do gateway Webhook (`pixi run gateway`) |
 | `AEGIS_SUBAGENTES` | `true` | Habilita subagentes pesquisador/redator |
+| `AEGIS_MULTIAGENTE` | `true` | Liga o orquestrador multiagente (F1/F2) — `false` volta ao fluxo clássico |
+| `AEGIS_MODELO_ORQUESTRADOR` | *(vazio)* | Modelo separado p/ orquestração granular (F3/F6) |
+| `AEGIS_MODELO_AVALIADOR` | *(vazio)* | Modelo separado p/ o avaliador crítico (F3/F6) |
 | `AEGIS_AGENDAMENTOS` | `config/dados/agendamentos.jsonl` | Arquivo de persistência do cron interno |
 | `AEGIS_TAREFAS` | `config/dados/tarefas.json` | Persistência da lista de tarefas (todo) |
 | `AEGIS_CONTEXTO` | `AGENTS.md` | Arquivo de contexto do projeto injetado no prompt |

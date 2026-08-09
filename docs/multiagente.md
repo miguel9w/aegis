@@ -268,19 +268,37 @@ AEGIS_HITL=false                 # interrupt() quando confianca baixa
 
 ## 11. Fases (cada fase = commit verde com testes)
 
-1. **F1 · Pool de ferramentas** (P0) — `pools.py` + subagentes usando pools + teste
-   de integridade. Zero mudança no grafo.
-2. **F2 · Núcleo multiagente** (P0) — estado novo, `no_orquestrador`, subgrafo
-   programação (3 especialistas paralelos + `no_integrador`), avaliador estruturado,
-   `Command` para o loop, fallback adaptativo 4.4.
-3. **F3 · Roteamento e HITL** (P1) — classificador leve + cache de divisões, `Send`
-   para map-reduce, `interrupt()` + retomada na TUI.
-4. **F4 · TUI de orquestração** (P1) — árvore viva, `/orquestrar` dry-run, `/multi`,
-   métricas por nó.
-5. **F5 · Domínios declarativos** (P1) — `@registrar_dominio`, domínios exemplo
-   (pesquisa/escrita), skills como especialistas (P2).
-6. **F6 · Polimento e benchmark** (P2) — modelos separados, `pixi run bench-multi`
-   (mesmo prompt com multiagente on/off → tokens, tempo, notas), memória de
+> **Estado da implementação:** F1 ✅ e F2 ✅ concluídas (suíte **237 passed**;
+> ver git log desta leva). F3–F6 pendentes conforme prioridades P1/P2.
+
+1. **F1 · Pool de ferramentas** (P0) — ✅ **implementada**: `aegis/ferramentas/pools.py`
+   com 6 pools declarativas (programacao/pesquisa/escrita/obsidian/memoria/prompt),
+   `registrar_pool()` para plugins, `pool_da_lista()` por domínio e teste de
+   integridade `∪ POOLS ⊆ nomes(ferramentas)` (0 órfãos contra a lista real de 47).
+   Ordem alfabética de propósito (estabilidade do prompt → cache do provedor).
+2. **F2 · Núcleo multiagente** (P0) — ✅ **implementada**: `aegis/multiagente.py`
+   (registro declarativo de domínios + classificador por regras zero-LLM +
+   `parsear_veredito` tolerante + `montar_subgrafo_dominio` + `montar_multiagente`),
+   estado novo em `estado.py` (dominio/divisao/rascunhos/vereditos/orquestracao_final,
+   reducers `_merge_dict` e `operator.add`), wire em `grafo.py` (START → orquestrador →
+   `sub_<domínio>` | legado), auditoria em `config/dados/orquestracoes.jsonl`, 4
+   domínios além de programação (pesquisa/escrita/obsidian/memoria), prompts dos
+   especialistas/integrador/avaliador, TUI com frame `resposta_multi` (+ estado
+   `dominio_turno`/`vereditos_turno`). **Deliberadamente diferente do plano em 2
+   pontos** (lições reais, ver §13): fan-out por 3 arestas paralelas em vez de
+   `Send` no retorno de nó (a versão instalada do LangGraph 1.x rejeita lista de
+   `Send` com `InvalidUpdateError`); loop de reprovação via aresta condicional para
+   `no_fanout` em vez de `Command` (o avaliador append em `vereditos` e a rota pura
+   `rota_apos_avaliador` já cobrem o ciclo).
+3. **F3 · Roteamento e HITL** (P1) — pendente: classificador leve + cache de divisões
+   (a auditoria JSONL já grava a base), `Send` para map-reduce (validar a API da
+   versão instalada antes), `interrupt()` + retomada na TUI.
+4. **F4 · TUI de orquestração** (P1) — parcial: frame `resposta_multi` + estado
+   exposto; falta a árvore viva de slots, `/orquestrar` dry-run, `/multi on|off`.
+5. **F5 · Domínios declarativos** (P1) — parcial: `DOMINIOS` é registro declarativo
+   com 5 domínios; falta `@registrar_dominio` para plugins e skills como especialistas.
+6. **F6 · Polimento e benchmark** (P2) — pendente: modelos separados (`AEGIS_MODELO_ORQUESTRADOR`/
+   `AEGIS_MODELO_AVALIADOR` já lidos na config), `pixi run bench-multi`, memória de
    vereditos, pinning de ferramentas por uso.
 
 ## 12. Riscos e limites
@@ -294,6 +312,58 @@ AEGIS_HITL=false                 # interrupt() quando confianca baixa
 - **Determinismo**: mesma seed → mesma divisão/rascunhos EXIGE fakes nos testes; em
   produção o LLM é estocástico por natureza: documentado como "determinismo de teste,
   não de produção" (o mesmo que o núcleo do progect_singularity prega).
+- **Cache global de subgrafos**: `obter_subgrafo` cacheia por (domínio, id(llm),
+  id(cfg)) — o subgrafo captura modelo e config nos closures; reusá-lo com outro
+  modelo/config vazaria estado (bug real encontrado e corrigido nos testes).
+- **Duas arestas do START**: no modo multiagente, START → no_orquestrador SUBSTITUI
+  START → no_agente (a rota interna encaminha ao legado). Manter as duas arestas
+  roda o agente principal EM PARALELO com o subgrafo (bug real de execução dupla
+  visto no diagnóstico).
+
+## 13. Web search — o que a pesquisa mudou na implementação
+
+Pesquisa feita via SearXNG local (**nota: a porta mudou de 8888 para 8081** após
+restart do docker compose) + extração das páginas. Lições aplicadas (ou registradas):
+
+1. **Fan-out paralelo exige reducers** (forum LangChain, "parallel nodes/fanouts" +
+   resposta de devs do LangGraph): nós agendados juntos rodam em paralelo (Pregel) e
+   chaves escritas por múltiplos nós precisam de reducer — sem ele,
+   `INVALID_CONCURRENT_GRAPH_UPDATE`. Aplicado: `rascunhos` com `_merge_dict` (cada
+   slot grava a própria chave) e `vereditos` com `operator.add` (append-only).
+   Link: https://forum.langchain.com/t/best-practices-for-parallel-nodes-fanouts/1900
+2. **`Send` para fan-out dinâmico; `Command(update, goto)` para rotear+atualizar;
+   `max_concurrency` para throttling; `RetryPolicy` por nó** — planejado (F3), com a
+   ressalva real: nesta versão instalada do LangGraph 1.x, RETORNO de nó com lista de
+   `Send` levanta `InvalidUpdateError: Expected dict, got [Send...]` — validar a API
+   antes de migrar o fan-out estático.
+3. **Manter estado bruto, formatar prompts na hora** (docs oficiais "Thinking in
+   LangGraph"): os rascunhos são armazenados crus no estado; o integrador monta o
+   trecho formatado só quando precisa. Link:
+   https://docs.langchain.com/oss/python/langgraph/thinking-in-langgraph
+4. **Self-correcting loop com avaliador estruturado** (axontick blog): grade/audit/
+   corrigir antes de responder, com veredito em JSON (Pydantic no original; aqui
+   parse tolerante `parsear_veredito`). Link:
+   https://www.axontick.com/blogs/stateful-retries-evaluation-nodes-langgraph
+5. **Cache de LLM corta custo/latência drasticamente** (AWS database blog): com
+   prompt caching, queries cacheadas ficam ~sub-ms. Aplicado de forma indireta:
+   pools com ordem alfabética estável (prompt de sistema estável = cache hit), estado
+   com pouca mutação por turno multipa (só mensagens + chaves novas), subgrafos
+   compilados UMA vez por processo (`obter_subgrafo`). O prompt caching do provedor
+   já aparecia no diagnóstico (`cache_read: 2.18M`). Link:
+   https://aws.amazon.com/blogs/database/optimize-llm-response-costs-and-latency-with-effective-caching/
+6. **Supervisor/orchestrator pattern** (eastondev + docs LangGraph): supervisor
+   decide, workers executam, um nó de síntese consolida — o modelo desta F2
+   (orquestrador por regras + especialistas + integrador/avaliador). Link:
+   https://eastondev.com/blog/en/posts/ai/20260512-langgraph-multi-agent-supervisor/
+
+**Velocidade de resposta (pedido do usuário) — o que foi implementado no F2:**
+- Especialista recebe a pool REDUZIDA (8–14 tools vs 47 do agente principal) →
+  prompt de sistema ~3–6× menor → menos tokens de entrada e menos ruído de
+  tool_calls (menos risco do loop/truncamento que derrubou a TUI).
+- Classificador de domínio por REGRAS (zero LLM): o orquestrador não custa uma
+  chamada extra em nenhum turno; só entra no subgrafo quando há domínio.
+- Subgrafos compilados uma vez por processo (cache `obter_subgrafo`).
+- Fluxo legado byte-idêntico: pergunta sem domínio → caminho antigo sem overhead.
 
 ---
 *Convenções respeitadas: pt-BR em código/comentários/README; TDD (testes antes do
