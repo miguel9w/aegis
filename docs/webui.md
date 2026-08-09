@@ -90,6 +90,7 @@ espírito — nomes próprios, SDL não usado.
 {"job_id":"j-abc","kind":"arquivo","acao":"escrever|editar|apagar","caminho":"artefatos/novo.py","diff":"@@ -0,0 +1,3 @@\n+def main(): ...","status":"ok|erro"}
 {"job_id":"j-abc","kind":"subgrafo","nome":"programacao","evento":"start|end","nivel":1,"tipo":"multiagente|delegacao"}
 {"job_id":"j-abc","kind":"subagente","nome":"delegar_pesquisa","estado":"inicio|fim","resumo":"..."}  // agent-as-tool
+{"job_id":"j-abc","kind":"comando","cmd":"git status","status":"ok|erro|recusado","duracao_ms":85,"resumo":"código=0","confirmado":true}
 {"job_id":"j-abc","kind":"veredito","veredito":{"status":"aprovado","nota":8.5,"detalhe":"..."}}
 {"job_id":"j-abc","kind":"estado","parcial":{...}}                    // snapshots stream.values (top-level)
 {"job_id":"j-abc","kind":"fim","estado_final":{...}}                  // stream.output — estado COMPLETO (redigido)
@@ -188,24 +189,48 @@ Cada evento do agente vira um **card** com ícone, nome e estado animado:
 4. **Auditoria** — tail de `orquestracoes.jsonl` + threads navegáveis.
 5. **Config** — switches efetivos, limites, modelo, versão — **redigido**.
 
-## 7. Ferramentas de arquivo — PRÉ-REQUISITO REAL (descoberto nesta leva)
+## 7. Ferramentas do sistema — arquivo (sandbox) E comandos (política)
 
-O Aegis **não tem** ferramentas de arquivo reais hoje (`escrever_arquivo` só
-existe como referência de papel; inventário de 47 tools não inclui nenhuma de
-arquivo). O painel de edição exige criá-las no núcleo (TUI também ganha):
+> Descoberta desta leva: o Aegis **não tem** ferramentas de arquivo reais
+> (`escrever_arquivo` só existe como referência de papel; inventário de 47
+> tools não inclui nenhuma de arquivo). E **não tem** execução de comandos.
+> O usuário pediu: edição de arquivos na UI **e** comandos do sistema **sem
+> sandbox**, mas com **segurança de comando** (outra ferramenta).
 
-- **`escrever_arquivo(caminho, conteudo)`** → cria/sobrescreve; retorna o
-  **diff unified** (difflib) entre antes/depois + caminho absoluto resolvido.
-- **`editar_arquivo(caminho, trecho_antigo, trecho_novo)`** → replace único;
-  erro "trecho não encontrado" vira retorno de tool (o agente segue), diff no
-  retorno.
-- **`ler_arquivo(caminho, limite)`** → conteúdo truncado (`limite_trecho_llm`).
-- **`listar_arquivos(diretorio)`** → árvore limitada (50 entradas).
+### 7.1 Arquivos — `escrever_arquivo` / `editar_arquivo` / `ler_arquivo` / `listar_arquivos`
+
+- Cria/sobrescreve/edita/ler/lista; **diff unified** (difflib) no retorno de
+  escrita/edição; erro de trecho ausente vira retorno de tool (não exceção).
 - **Sandbox de caminho** (anti path-traversal): resolve e exige prefixo em
   `AEGIS_ARTEFATOS_DIR` (default `config/dados/artefatos/`, criado) ou no
-  diretório do projeto; fora → retorno de erro (não exceção).
-- **Testes de isolamento**: `../`, absoluto fora do permitido, symlink escape —
-  todos retornam erro controlado; diff correto para criar/editar. (TDD.)
+  diretório do projeto; fora → erro controlado.
+- Testes de isolamento: `../`, absoluto fora, symlink escape → bloqueados.
+
+### 7.2 Comandos — `executar_comando` (sem sandbox, com política)
+
+Roda comandos do sistema **sem sandbox** (qualquer cwd, com o usuário real,
+pipes/redirect — `shell=True` com `shlex`), mas com **segurança de comando**
+declarativa — nova ferramenta, separada das de arquivo:
+
+1. **Allowlist de leitura** — comandos de leitura rodam direto: `ls, cat, head,
+   tail, grep, find, pwd, git status/log/diff/show, df, free, ps, uname, which`.
+2. **Denylist absoluta** — recusados SEMPRE, com erro didático: `rm -rf /`,
+   `mkfs, dd, shutdown, reboot, halt, kill -9, chmod -R 777 /, curl|sh, :(){:|:&};:`,
+   redirecionamento para `/dev/sd*`, `> /etc/*` etc.
+3. **Escrita exige `confirmar: true`** — qualquer comando fora da allowlist
+   (instalar pkgs, git commit/push, criar pasta, mover, apagar arquivo
+   específico…) exige o argumento `confirmar: true`; sem ele → erro "use
+   confirmar: true para comandos de escrita". **Toda execução vai para
+   `config/dados/comandos.jsonl`** (auditoria: cmd, sha256, status, duração,
+   confirmado) — visível na web UI (feed + aba Auditoria).
+4. **Contenção de execução**: timeout (`AEGIS_EXEC_TIMEOUT`, default 120 s),
+   saída truncada em `limite_resultado` (8000), **env LIMPO para o subprocesso**
+   (sem `OPENAI_API_KEY`/segredos — o comando roda com PATH básico + cwd),
+   sem stdin (não-interativo).
+5. **`cwd`**: default = raiz do projeto; `AEGIS_EXEC_CWD` customiza.
+6. **HITL real** (aprovação humana via interrupt AG-UI) registrado como
+   evolução W6+ — no v1, "confirmar + auditoria + feed" é a segurança.
+   Frame `comando` no protocolo (§3.2) alimenta o card de terminal do feed.
 
 ## 8. Integração com o LangGraph (ponte)
 
@@ -253,9 +278,14 @@ webui-test   = "bun test ./webui/*.test.ts"
 
 ## 11. Testes (prova anti-alucinação — TDD)
 
-1. **pytest — tools de arquivo** (`tests/test_ferramentas_arquivo.py`):
-   escrever retorna diff correto; editar com trecho ausente → erro controlado;
-   path traversal (../, absoluto, symlink) bloqueado; sandbox dir criado.
+1. **pytest — ferramentas do sistema** (`tests/test_ferramentas_arquivo.py` +
+   `tests/test_ferramentas_comando.py`): arquivo — escrever retorna diff
+   correto; editar com trecho ausente → erro controlado; path traversal (../,
+   absoluto, symlink) bloqueado; sandbox dir criado. comando — allowlist roda
+   direto; **denylist recusa (rm -rf /, mkfs, shutdown…) com erro didático**;
+   escrita sem `confirmar: true` → erro; com `confirmar` → roda + linha em
+   `config/dados/comandos.jsonl`; **env do subprocesso sem `OPENAI_API_KEY`**;
+   timeout respeitado; saída truncada.
 2. **pytest — ponte** (`tests/test_webui_bridge.py`, sem subprocess):
    `executar_job` com `ModeloFake` → frames `token`+`fim` com estado final;
    multiagente aprova/reprova → `subgrafo`+`veredito` na ordem; `reasoning`
@@ -277,9 +307,11 @@ webui-test   = "bun test ./webui/*.test.ts"
    servindo `index.html` + `/api/healthz`; spawn da ponte + `ping`;
    **validação `stream_events` v3 (reasoning/subgraphs/output)** documentada.
    `bun test` esqueleto. Commit.
-2. **W2 · Tools de arquivo** — `escrever_arquivo`/`editar_arquivo`/
-   `ler_arquivo`/`listar_arquivos` com sandbox + diff; testes de isolamento;
-   registradas no ToolNode (TUI ganha o diff como bônus). Commit.
+2. **W2 · Ferramentas do sistema** — `escrever_arquivo`/`editar_arquivo`/
+   `ler_arquivo`/`listar_arquivos` (sandbox + diff) E `executar_comando`
+   (política: allowlist/denylist/confirmar + auditoria `comandos.jsonl` + env
+   limpo); testes de isolamento e política; registradas no ToolNode (TUI ganha
+   o diff e o card de comando como bônus). Commit.
 3. **W3 · Ponte Python** — `aegis/webui_bridge.py`: protocolo JSONL v2 (frames
    reasoning/arquivo/subagente/veredito/metriica/token cumulativo), `_redigir`,
    log de linha malformada. pytest da ponte (ModeloFake + multiagente +
