@@ -1,50 +1,244 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Aegis Web UI</title>
-  <style>
-    :root { color-scheme: dark; }
-    body {
-      margin: 0;
-      background: #0b0e14;
-      color: #e6e9f0;
-      font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
-      display: grid;
-      place-items: center;
-      min-height: 100vh;
-    }
-    .painel {
-      text-align: center;
-      padding: 3rem;
-      border: 1px solid #1f2633;
-      border-radius: 12px;
-      background: #0f131c;
-      box-shadow: 0 0 60px rgba(79, 140, 255, 0.08);
-    }
-    h1 { font-size: 1.1rem; letter-spacing: 0.15em; text-transform: uppercase; color: #4f8cff; }
-    p { color: #8b93a7; font-size: 0.85rem; }
-    .status { color: #3ddc97; }
-    code { background: #161b26; padding: 0.2em 0.5em; border-radius: 4px; color: #e6e9f0; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aegis Web UI</title>
+<script type="module" src="/app.js"></script>
+<style>
+  :root {
+    --bg: #0b0e14; --painel: #11161f; --painel2: #161d29; --borda: #1e2632;
+    --texto: #dbe4f0; --fraca: #8b97a8; --accent: #4f9cf9; --accent2: #7c5cff;
+    --ok: #3fb97f; --erro: #e5534b; --aviso: #d9a441;
+    --mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+    --sans: "Inter", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--texto); font-family: var(--sans);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #263044; border-radius: 8px; }
+
+  /* ------------------------------------------------------------ topo */
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; border-bottom: 1px solid var(--borda);
+    background: var(--painel); flex: 0 0 auto;
+  }
+  .logo { font-weight: 700; letter-spacing: 0.4px; }
+  .logo b { color: var(--accent); }
+  .logo span { color: var(--fraca); font-weight: 400; }
+  #thread-badge {
+    font-family: var(--mono); font-size: 12px; color: var(--fraca);
+    background: var(--painel2); border: 1px solid var(--borda);
+    padding: 3px 8px; border-radius: 20px;
+  }
+  #status {
+    font-family: var(--mono); font-size: 12px; color: var(--ok);
+    border: 1px solid #24463a; background: #10231c; padding: 3px 10px; border-radius: 20px;
+    transition: color 0.2s;
+  }
+  header .flex { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .ping-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); animation: pulsar 2.4s infinite; }
+  @keyframes pulsar { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  /* ------------------------------------------------------------ layout */
+  main {
+    flex: 1 1 auto; display: grid; min-height: 0;
+    grid-template-columns: 232px 1fr 320px; gap: 0;
+  }
+  .coluna { display: flex; flex-direction: column; min-height: 0; }
+  .col-feed { border-right: 1px solid var(--borda); background: var(--painel); }
+  .col-painel { border-left: 1px solid var(--borda); background: var(--painel); }
+  .titulo-col {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--fraca); padding: 10px 14px 6px; border-bottom: 1px solid var(--borda);
+    flex: 0 0 auto;
+  }
+
+  /* ------------------------------------------------------------ feed */
+  #feed { flex: 1 1 auto; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .feed-item {
+    display: flex; gap: 8px; padding: 7px 9px; border: 1px solid var(--borda);
+    border-radius: 8px; background: var(--painel2); font-size: 12.5px;
+    animation: surgir 0.18s ease-out;
+  }
+  @keyframes surgir { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  .feed-item.ok { border-color: #24463a; }
+  .feed-item.erro { border-color: #5c2626; }
+  .feed-icone { flex: 0 0 auto; }
+  .feed-corpo { min-width: 0; flex: 1; }
+  .feed-titulo { word-break: break-word; }
+  .feed-detalhe { color: var(--fraca); font-size: 12px; margin-top: 3px; }
+  .feed-detalhe code { font-family: var(--mono); }
+  .feed-detalhe details { margin-top: 2px; }
+  .feed-detalhe pre { font-family: var(--mono); font-size: 11px; background: #0d1219; padding: 6px; border-radius: 6px; overflow-x: auto; }
+  .tool-nome { font-family: var(--mono); color: var(--accent); }
+  .tool-estado { font-size: 11px; padding: 1px 7px; border-radius: 10px; }
+  .tool-estado.ativo { background: #22334d; color: var(--aviso); animation: piscar 1.2s infinite; }
+  .tool-estado.feito { background: #10231c; color: var(--ok); }
+  .tool-estado.erro { background: #33181a; color: var(--erro); }
+  @keyframes piscar { 50% { opacity: 0.45; } }
+  .arquivo-caminho { font-family: var(--mono); color: var(--aviso); }
+  .subgrafo-nome { font-family: var(--mono); color: var(--accent2); }
+  .veredito-ok { color: var(--ok); font-weight: 600; }
+  .veredito-erro { color: var(--erro); font-weight: 600; }
+  .veredito-nota { color: var(--fraca); }
+
+  /* diff */
+  .diff { font-family: var(--mono); font-size: 11px; background: #0d1219; border-radius: 6px; padding: 6px 0; margin-top: 4px; }
+  .diff > div { display: flex; gap: 6px; padding: 0 8px; white-space: pre; overflow-x: auto; }
+  .diff-sinal { color: var(--fraca); user-select: none; }
+  .diff-add { background: #10231c; color: #8fe3b8; }
+  .diff-rem { background: #33181a; color: #f0a3a0; }
+  .diff-hunk { color: var(--accent2); background: #181133; }
+  .diff-cab { color: var(--fraca); }
+  .diff-ctx { color: var(--texto); }
+
+  /* ------------------------------------------------------------ chat */
+  .col-chat { background: var(--bg); }
+  #chat { flex: 1 1 auto; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; }
+  .bolha { display: flex; gap: 10px; animation: surgir 0.2s ease-out; }
+  .bolha .avatar {
+    width: 28px; height: 28px; border-radius: 8px; flex: 0 0 auto;
+    display: grid; place-items: center; font-size: 13px; font-weight: 700;
+  }
+  .bolha.usuario .avatar { background: #22334d; color: var(--accent); }
+  .bolha .corpo { white-space: pre-wrap; font-size: 14px; line-height: 1.55; }
+  .turno-aegis { display: flex; flex-direction: column; gap: 8px; animation: surgir 0.2s ease-out; }
+  .turno-aegis .avatar-aegis { color: var(--accent2); font-weight: 700; margin-bottom: 4px; font-size: 13px; }
+  .resposta { font-size: 14px; line-height: 1.6; }
+  .resposta p { margin: 0.3em 0; }
+  .resposta h3, .resposta h4 { margin: 0.7em 0 0.3em; color: var(--texto); }
+  .resposta ul { margin: 0.3em 0 0.3em 1.4em; }
+  .resposta code { font-family: var(--mono); font-size: 13px; background: #161d29; border: 1px solid var(--borda); padding: 1px 5px; border-radius: 5px; }
+  .resposta pre { background: #0d1219; border: 1px solid var(--borda); border-radius: 8px; padding: 10px; overflow-x: auto; margin: 0.5em 0; }
+  .resposta pre code { background: none; border: none; padding: 0; font-size: 12.5px; }
+  .spinner { color: var(--fraca); font-family: var(--mono); font-size: 12px; }
+  .spinner::after { content: ""; animation: pontos 1.2s infinite; }
+  @keyframes pontos { 0% { content: ""; } 33% { content: "."; } 66% { content: ".."; } 100% { content: "..."; } }
+  .oculto { display: none !important; }
+
+  /* thinking */
+  .thinking-wrap { border: 1px dashed #2c3b52; border-radius: 8px; background: #0e1420; overflow: hidden; }
+  .thinking-wrap.aberto { border-style: solid; border-color: #2b3f61; }
+  .thinking-toggle {
+    background: none; border: none; color: var(--fraca); font-family: var(--mono);
+    font-size: 12px; padding: 6px 10px; cursor: pointer; width: 100%; text-align: left;
+  }
+  .thinking-toggle:hover { color: var(--texto); }
+  .thinking-corpo {
+    font-size: 12.5px; color: var(--fraca); font-style: italic; line-height: 1.55;
+    padding: 2px 12px 10px; font-family: var(--mono); white-space: pre-wrap;
+  }
+  .metrica-turno {
+    font-family: var(--mono); font-size: 11.5px; color: var(--fraca);
+    border-top: 1px dashed var(--borda); padding-top: 6px;
+  }
+
+  /* entrada */
+  .entrada-wrap { flex: 0 0 auto; padding: 12px 16px; border-top: 1px solid var(--borda); background: var(--painel); display: flex; gap: 10px; align-items: flex-end; }
+  #entrada {
+    flex: 1; resize: none; background: var(--painel2); color: var(--texto);
+    border: 1px solid var(--borda); border-radius: 10px; padding: 10px 12px;
+    font-family: var(--sans); font-size: 14px; line-height: 1.4; max-height: 140px;
+  }
+  #entrada:focus { outline: none; border-color: var(--accent); }
+  #enviar {
+    background: var(--accent); border: none; color: #06121f; font-weight: 700;
+    padding: 10px 18px; border-radius: 10px; cursor: pointer; font-size: 13px;
+  }
+  #enviar:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* ------------------------------------------------------------ painel direito */
+  .abas { display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--borda); }
+  .abas button {
+    flex: 1; background: none; border: none; color: var(--fraca); cursor: pointer;
+    font-size: 11.5px; padding: 9px 0; font-family: var(--mono);
+    border-bottom: 2px solid transparent;
+  }
+  .abas button.ativa { color: var(--accent); border-bottom-color: var(--accent); }
+  .painel-corpo { flex: 1 1 auto; overflow-y: auto; padding: 12px; display: none; }
+  .painel-corpo.ativo { display: block; }
+  .metrica-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .metrica-cel { background: var(--painel2); border: 1px solid var(--borda); border-radius: 8px; padding: 8px; text-align: center; }
+  .metrica-cel .rotulo { font-size: 10px; color: var(--fraca); text-transform: uppercase; letter-spacing: 0.8px; }
+  .metrica-cel .valor { font-family: var(--mono); font-size: 17px; margin-top: 2px; }
+  #spark { width: 100%; height: 54px; background: #0d1219; border: 1px solid var(--borda); border-radius: 8px; }
+  .wire-linha { font-family: var(--mono); font-size: 11px; border-bottom: 1px solid #18202d; padding: 4px 0; color: var(--fraca); }
+  .wire-linha code { color: var(--texto); word-break: break-all; }
+  .wire-kind { display: inline-block; min-width: 74px; color: var(--accent); }
+  .wire-token .wire-kind { color: var(--ok); }
+  .wire-erro .wire-kind { color: var(--erro); }
+  .cfg-linha { display: flex; gap: 8px; font-family: var(--mono); font-size: 12px; padding: 5px 0; border-bottom: 1px solid #18202d; }
+  .cfg-chave { color: var(--accent); min-width: 130px; }
+  .cfg-valor { color: var(--texto); word-break: break-all; }
+  .thread-botao {
+    display: block; width: 100%; text-align: left; background: var(--painel2);
+    border: 1px solid var(--borda); color: var(--texto); border-radius: 7px;
+    font-family: var(--mono); font-size: 12px; padding: 7px 10px; margin-bottom: 6px; cursor: pointer;
+  }
+  .thread-botao:hover { border-color: var(--accent); }
+  .arvore-item { padding: 3px 0; border-left: 1px solid #2b3f61; margin-left: 6px; color: var(--texto); }
+  .arvore-start { color: var(--aviso); }
+
+  /* responsivo: esconde colunas laterais em telas estreitas */
+  @media (max-width: 1100px) {
+    main { grid-template-columns: 1fr; }
+    .col-feed, .col-painel { display: none; }
+  }
+</style>
 </head>
 <body>
-  <div class="painel">
-    <h1>⚙ Aegis Web UI</h1>
-    <p>esqueleto W1 — <span class="status" id="health">verificando ponte…</span></p>
-    <p id="detalhe">rotas: <code>/</code> · <code>/api/healthz</code></p>
-  </div>
-  <script>
-    fetch("/api/healthz")
-      .then((r) => r.json())
-      .then((d) => {
-        document.getElementById("health").textContent =
-          "ponte: " + d.ponte + " · bun " + d.bun;
-      })
-      .catch(() => {
-        document.getElementById("health").textContent = "sem conexão";
-      });
-  </script>
+  <header>
+    <div class="logo">Aegis<b>&lt;/&gt;</b> <span>web console</span></div>
+    <span id="thread-badge">thread: default</span>
+    <div class="flex">
+      <span id="status">pronto</span>
+      <span class="ping-dot" title="SSE ativo"></span>
+    </div>
+  </header>
+  <main>
+    <!-- feed de atividade -->
+    <section class="coluna col-feed">
+      <div class="titulo-col">Atividade</div>
+      <div id="feed"></div>
+    </section>
+
+    <!-- chat -->
+    <section class="coluna col-chat">
+      <div id="chat"><div class="turno-aegis"><div class="avatar-aegis">A</div><div class="resposta"><p style="color:var(--fraca)">Aegis web console online. Envie uma mensagem — a atividade do agente (ferramentas, arquivos, comandos, subagentes, vereditos) aparece no feed à esquerda e o streaming cru no painel <b>Wire</b>.</p></div></div></div>
+      <div class="entrada-wrap">
+        <textarea id="entrada" rows="2" placeholder="mensagem para o Aegis… (Enter envia, Shift+Enter quebra linha)"></textarea>
+        <button id="enviar">➤</button>
+      </div>
+    </section>
+
+    <!-- painel técnico -->
+    <section class="coluna col-painel">
+      <div class="abas">
+        <button data-aba="metricas" class="ativa">métricas</button>
+        <button data-aba="arvore">árvore</button>
+        <button data-aba="wire">wire</button>
+        <button data-aba="config">config</button>
+        <button data-aba="historico">histórico</button>
+      </div>
+      <div class="painel-corpo" id="painel-arvore"><div id="arvore-corpo" style="font-family:var(--mono);font-size:12px;color:var(--fraca)">subgrafos do multiagente aparecem aqui ao vivo</div></div>
+      <div class="painel-corpo ativo" id="painel-metricas">
+        <div class="metrica-grid">
+          <div class="metrica-cel"><div class="rotulo">tokens</div><div class="valor" id="m-tokens">0</div></div>
+          <div class="metrica-cel"><div class="rotulo">duração</div><div class="valor" id="m-duracao">0.00 s</div></div>
+          <div class="metrica-cel"><div class="rotulo">tps</div><div class="valor" id="m-tps">0.0</div></div>
+        </div>
+        <canvas id="spark" width="560" height="54"></canvas>
+      </div>
+      <div class="painel-corpo" id="painel-wire"><div id="wire-lista"></div></div>
+      <div class="painel-corpo" id="painel-config"><div id="config-corpo" style="font-family:var(--mono);font-size:12px;color:var(--fraca)">carregando…</div></div>
+      <div class="painel-corpo" id="painel-historico"><div id="historico-corpo" style="font-family:var(--mono);font-size:12px;color:var(--fraca)">carregando…</div></div>
+    </section>
+  </main>
 </body>
 </html>

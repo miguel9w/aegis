@@ -74,13 +74,13 @@ def test_editar_arquivo_ambiguo_exige_contexto(tmp_path, monkeypatch):
 def test_path_traversal_relativo_bloqueado(tmp_path, monkeypatch):
     _montar(tmp_path, monkeypatch)
     saida = escrever_arquivo.invoke({"caminho": "../../../../etc/malvado.txt", "conteudo": "x"})
-    assert "fora do permitido" in saida
+    assert "fora do" in saida
 
 
 def test_path_absoluto_fora_bloqueado(tmp_path, monkeypatch):
     _montar(tmp_path, monkeypatch)
     saida = escrever_arquivo.invoke({"caminho": "/etc/passwd", "conteudo": "x"})
-    assert "fora do permitido" in saida
+    assert "fora do" in saida
 
 
 def test_symlink_escape_bloqueado(tmp_path, monkeypatch):
@@ -90,7 +90,7 @@ def test_symlink_escape_bloqueado(tmp_path, monkeypatch):
     link = artefatos / "escapa"
     link.symlink_to(alvo_fora)
     saida = ler_arquivo.invoke({"caminho": str(link)})
-    assert "fora do permitido" in saida
+    assert "fora do" in saida
 
 
 def test_ler_arquivo_trunca(tmp_path, monkeypatch):
@@ -116,3 +116,15 @@ def test_listar_arquivos():
 def test_listar_diretorio_inexistente():
     saida = listar_arquivos.invoke({"diretorio": "nao-existe-xyz"})
     assert "não encontrado" in saida
+
+
+def test_escrever_na_raiz_do_projeto_bloqueado(tmp_path, monkeypatch):
+    """O chat NÃO pode escrever na raiz do projeto — só nos artefatos."""
+    _montar(tmp_path, monkeypatch)
+    saida = escrever_arquivo.invoke({
+        "caminho": "agentes_conversa/lixo.py", "conteudo": "x = 1",
+    })
+    assert "fora do sandbox" in saida
+    # e o arquivo NÃO existe na raiz
+    from pathlib import Path as _P
+    assert not _P("agentes_conversa/lixo.py").exists()

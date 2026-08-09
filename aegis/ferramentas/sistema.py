@@ -35,24 +35,38 @@ from ..config_json import carregar_config_json as _cfg_json
 # ---------------------------------------------------------------------
 
 
-def _permitidos() -> list[Path]:
-    """Diretórios raiz permitidos: artefatos + raiz do projeto."""
-    return [config.artefatos_dir.resolve(), RAIZ.resolve()]
+def _permitidos(escrita: bool = False) -> list[Path]:
+    """Diretórios raiz permitidos.
+
+    - escrita: APENAS `config.artefatos_dir` (sandbox real — o agente não
+      mexe no projeto; o usuário reclamou uma vez do chat escrever na raiz);
+    - leitura: artefatos + raiz do projeto (o agente pode se orientar no
+      código do próprio projeto sem poder alterá-lo).
+    """
+    raizes = [config.artefatos_dir.resolve()]
+    if not escrita:
+        raizes.append(RAIZ.resolve())
+    return raizes
 
 
-def _resolver(caminho: str) -> Path:
-    """Resolve o caminho contra a raiz do projeto (relativos) e valida o sandbox."""
+def _resolver(caminho: str, escrita: bool = False) -> Path:
+    """Resolve o caminho (relativos contra a raiz do projeto) e valida o sandbox."""
     base = Path(caminho).expanduser()
     if not base.is_absolute():
         base = RAIZ / base
     alvo = base.resolve()
-    permitidos = _permitidos()
+    permitidos = _permitidos(escrita)
     for raiz in permitidos:
         try:
             alvo.relative_to(raiz)
             return alvo
         except ValueError:
             continue
+    if escrita:
+        raise ValueError(
+            f"escrita permitida apenas em {config.artefatos_dir} "
+            f"(fora do sandbox: {caminho!r})"
+        )
     raise ValueError(
         f"caminho fora do permitido: {caminho!r} "
         f"(permitido: {', '.join(str(p) for p in permitidos)})"
@@ -108,7 +122,7 @@ def escrever_arquivo(caminho: str, conteudo: str) -> str:
         conteudo: conteúdo completo do arquivo.
     """
     try:
-        alvo = _resolver(caminho)
+        alvo = _resolver(caminho, escrita=True)
     except ValueError as exc:
         return f"erro: {exc}"
     try:
@@ -134,7 +148,7 @@ def editar_arquivo(caminho: str, trecho_antigo: str, trecho_novo: str) -> str:
         trecho_novo: texto que substitui o trecho antigo.
     """
     try:
-        alvo = _resolver(caminho)
+        alvo = _resolver(caminho, escrita=True)
     except ValueError as exc:
         return f"erro: {exc}"
     if not alvo.is_file():

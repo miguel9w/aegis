@@ -6,6 +6,7 @@
  * `: ping` (o DeepSeek fica mudo durante o reasoning — sem o keepalive o
  * proxy derruba o stream). server.timeout(req, 0) desliga o idle do Bun.
  */
+import { build } from "bun";
 import { Ponte, type Frame } from "./bridge.ts";
 
 export interface JobSSE {
@@ -37,6 +38,22 @@ export function criarServidor(opcoes: OpcoesServidor = {}) {
   const timeoutComando = opcoes.timeoutComandoMs ?? 4_000;
   const jobs = new Map<string, JobSSE>();
   const enc = new TextEncoder();
+
+  /** Garante o bundle do front (dev: rebuilda se app.ts mais novo). */
+  async function garantirBuild(): Promise<void> {
+    const entrada = `${dir}app.ts`;
+    const saida = `${dir}public/dist/app.js`;
+    try {
+      const estAtual = Bun.fs.statSync(entrada);
+      const estDist = Bun.fs.statSync(saida);
+      if (estDist.mtime >= estAtual.mtime) return;
+    } catch { /* dist ausente → build */ }
+    const r = await build({
+      entrypoints: [entrada], outdir: `${dir}public/dist`,
+      minify: false, sourcemap: "inline",
+    });
+    if (!r.outputs.length) throw new Error("bun build falhou sem outputs");
+  }
 
   function fecharJob(jobId: string) {
     const job = jobs.get(jobId);
@@ -72,10 +89,30 @@ export function criarServidor(opcoes: OpcoesServidor = {}) {
       const caminho = url.pathname;
 
       if (caminho === "/" || caminho === "/index.html") {
-        const html = await Bun.file(`${dir}/index.html`).text();
+        await garantirBuild();
+        const html = await Bun.file(`${dir}index.html`).text();
         return new Response(html, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
+      }
+
+      // estáticos do front (dist foi gerado por bun build no dev/boot)
+      if (caminho === "/app.js" || caminho === "/style.css" || caminho.startsWith("/dist/")) {
+        const relativo = caminho === "/app.js" ? "public/dist/app.js"
+          : caminho === "/style.css" ? "style.css" : caminho.slice(1);
+        const arquivo = Bun.file(`${dir}${relativo}`);
+        if (await arquivo.exists()) {
+          const tipo = relativo.endsWith(".js") ? "application/javascript"
+            : relativo.endsWith(".css") ? "text/css" : "application/octet-stream";
+          return new Response(arquivo, {
+            headers: { "Content-Type": tipo, "Cache-Control": "no-store" },
+          });
+        }
+        if (caminho === "/style.css") {
+          // CSS embutido no index.html — rota lógica por compatibilidade
+          return new Response("", { headers: { "Content-Type": "text/css" } });
+        }
+        return new Response("não encontrado", { status: 404 });
       }
 
       if (caminho === "/api/healthz") {

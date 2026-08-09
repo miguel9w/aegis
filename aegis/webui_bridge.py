@@ -242,13 +242,15 @@ async def executar_job(
         if falha is None:
             for v in _extrair_vereditos(est["ultimo_output"]):
                 yield frame(kind="veredito", veredito=_redigir(v))
-            texto_final = _texto_final(est["ultimo_output"], est["acumulado_texto"])
-            yield frame(kind="fim", texto=texto_final,
-                        estado_final=_truncar_json(_redigir(est["ultimo_output"])))
             duracao = time.monotonic() - inicio
             tps = round(est["n_chunks"] / duracao, 1) if duracao > 0 else 0.0
             yield frame(kind="metrica", tokens=est["n_chunks"],
                         duracao_s=round(duracao, 2), tps=tps)
+            # `fim` é SEMPRE o último (o Bun fecha o job nele — o que vier
+            # depois seria descartado)
+            texto_final = _texto_final(est["ultimo_output"], est["acumulado_texto"])
+            yield frame(kind="fim", texto=texto_final,
+                        estado_final=_truncar_json(_redigir(est["ultimo_output"])))
 
 
 # ---------------------------------------------------------------------
@@ -324,13 +326,12 @@ def _emitir_job(app: Any, cmd: dict) -> None:
     asyncio.run(rodar())
 
 
-def main() -> None:
-    """Loop do protocolo: stdin → comandos, stdout → frames (JSONL)."""
-    app = montar_app()
+async def _main_loop() -> None:
+    """Loop principal da ponte — UM event loop para montagem + todos os jobs
+    (o AsyncSqliteSaver prende conexões/locks ao loop; dois loops = RuntimeError)."""
+    app, _ = await _montar_app_async(config)
     sys.stderr.write(
-        f"[ponte] Aegis bridge pronta — {_N_FERRAMENTAS} ferramentas, "
-        f"modelo {config.modelo}\n"
-    )
+        f"[ponte] Aegis bridge pronta — modelo {config.modelo}\n")
     sys.stderr.flush()
     for linha in sys.stdin:
         linha = linha.strip()
@@ -341,18 +342,39 @@ def main() -> None:
             if not isinstance(cmd, dict):
                 raise ValueError("comando não é objeto JSON")
         except Exception as exc:  # noqa: BLE001 — linha malformada não derruba a ponte
-            print(json.dumps({"erro": f"linha inválida: {exc}"}, ensure_ascii=False), flush=True)
+            print(json.dumps({"erro": f"linha inválida: {exc}"}, ensure_ascii=False),
+                  flush=True)
             continue
-        if cmd.get("cmd") == "mensagem":
+        acao = cmd.get("cmd")
+        if acao == "ping":
+            print('{"cmd": "pong"}', flush=True)
+        elif acao == "estado":
+            print(json.dumps({"cmd": "estado", "dados": snapshot_estado()},
+                             ensure_ascii=False), flush=True)
+        elif acao == "historico":
+            limite = int(cmd.get("limit", _LIMITE_HISTORICO))
+            print(json.dumps({"cmd": "historico",
+                              "threads": await listar_historico(app, limite)},
+                             ensure_ascii=False), flush=True)
+        elif acao == "mensagem":
+            job_id = str(cmd.get("job_id") or "j-0")
+            texto = str(cmd.get("texto") or "")
+            thread_id = str(cmd.get("thread_id") or config.thread_id)
             try:
-                _emitir_job(app, cmd)
-            except Exception as exc:  # noqa: BLE001
-                print(json.dumps({
-                    "job_id": cmd.get("job_id", "j-0"),
-                    "kind": "erro", "tipo": type(exc).__name__, "mensagem": str(exc)[:1000],
-                }, ensure_ascii=False), flush=True)
+                async for f in executar_job(app, texto, thread_id, job_id):
+                    print(json.dumps(f, ensure_ascii=False), flush=True)
+            except Exception as exc:  # noqa: BLE001 — nunca derruba a ponte
+                print(json.dumps({"job_id": job_id, "kind": "erro",
+                                  "tipo": type(exc).__name__, "mensagem": str(exc)[:1000]},
+                                 ensure_ascii=False), flush=True)
         else:
-            print(processar_comando(cmd, app), flush=True)
+            print(json.dumps({"erro": f"comando desconhecido: {acao!r}"},
+                             ensure_ascii=False), flush=True)
+
+
+def main() -> None:
+    """Ponto de entrada do processo (spawnado pelo Bun). Lê JSONL do stdin."""
+    asyncio.run(_main_loop())
 
 
 if __name__ == "__main__":
