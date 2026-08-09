@@ -120,6 +120,14 @@ class Config:
         self.prompts_avancados_dir: Path = RAIZ / os.getenv("AEGIS_PROMPTS_DIR", "config/prompts_avancados")
         self.prompt_ativo_path: Path = RAIZ / os.getenv("AEGIS_PROMPT_ATIVO", "config/dados/prompt_ativo.json")
 
+        # --- Ferramentas do sistema (arquivos + comandos) ---
+        self.artefatos_dir: Path = RAIZ / os.getenv(
+            "AEGIS_ARTEFATOS_DIR", "config/dados/artefatos")
+        self.exec_timeout: int = int(os.getenv("AEGIS_EXEC_TIMEOUT", "120"))
+        self.exec_cwd: Path = Path(os.getenv("AEGIS_EXEC_CWD", "")).expanduser() or RAIZ
+        self.comandos_path: Path = RAIZ / os.getenv(
+            "AEGIS_COMANDOS", "config/dados/comandos.jsonl")
+
         # --- Diversos ---
         self.dev: bool = _dev()
 

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aegis Web UI</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      background: #0b0e14;
+      color: #e6e9f0;
+      font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+    }
+    .painel {
+      text-align: center;
+      padding: 3rem;
+      border: 1px solid #1f2633;
+      border-radius: 12px;
+      background: #0f131c;
+      box-shadow: 0 0 60px rgba(79, 140, 255, 0.08);
+    }
+    h1 { font-size: 1.1rem; letter-spacing: 0.15em; text-transform: uppercase; color: #4f8cff; }
+    p { color: #8b93a7; font-size: 0.85rem; }
+    .status { color: #3ddc97; }
+    code { background: #161b26; padding: 0.2em 0.5em; border-radius: 4px; color: #e6e9f0; }
+  </style>
+</head>
+<body>
+  <div class="painel">
+    <h1>⚙ Aegis Web UI</h1>
+    <p>esqueleto W1 — <span class="status" id="health">verificando ponte…</span></p>
+    <p id="detalhe">rotas: <code>/</code> · <code>/api/healthz</code></p>
+  </div>
+  <script>
+    fetch("/api/healthz")
+      .then((r) => r.json())
+      .then((d) => {
+        document.getElementById("health").textContent =
+          "ponte: " + d.ponte + " · bun " + d.bun;
+      })
+      .catch(() => {
+        document.getElementById("health").textContent = "sem conexão";
+      });
+  </script>
+</body>
+</html>

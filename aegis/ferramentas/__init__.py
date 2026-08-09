@@ -8,6 +8,7 @@ from langchain_core.tools import BaseTool
 
 from ..config import config
 from .basicas import ferramentas_basicas
+from .sistema import ferramentas_sistema
 from ..skills import carregar_e_expor
 from ..plugins import carregar_plugins, erros_carregamento
 from ..recuperacao import pesquisar_memoria
@@ -42,6 +43,7 @@ def carregar_ferramentas(config_obj: Any = None) -> list[BaseTool]:
 
     ferramentas: list[BaseTool] = []
     ferramentas.extend(ferramentas_basicas())
+    ferramentas.extend(ferramentas_sistema())  # arquivos (sandbox) + comandos (política)
     ferramentas.append(pesquisar_memoria)  # RAG-lite sobre Store + extensions/skills
     ferramentas.append(gerenciar_memoria)  # memória explícita salvar/esquecer/listar
     ferramentas.append(delegar_pesquisa)  # subagente pesquisador
@@ -96,6 +98,7 @@ def recarregar_tudo(config_obj: Any = None) -> list[BaseTool]:
     cfg = config_obj or config
     ferramentas: list[BaseTool] = []
     ferramentas.extend(ferramentas_basicas())
+    ferramentas.extend(ferramentas_sistema())  # arquivos (sandbox) + comandos (política)
     ferramentas.append(pesquisar_memoria)
     ferramentas.append(gerenciar_memoria)
     ferramentas.append(delegar_pesquisa)

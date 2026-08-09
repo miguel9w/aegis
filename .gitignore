@@ -37,3 +37,7 @@ build/
 *.egg-info/config/dados/orquestracoes.jsonl
 
 config/dados/orquestracoes.jsonl
+
+# web UI/artefatos — dado gerado em runtime
+config/dados/artefatos/
+config/dados/comandos.jsonl

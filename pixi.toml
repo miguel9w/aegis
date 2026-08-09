@@ -32,6 +32,9 @@ notas = "python main.py --notas"             # notas recentes
 papers = "python main.py --papers"           # busca no arXiv (--papers consulta)
 obsidian = "python main.py --obsidian"  # lista o vault de notas Obsidian
 prompts = "python main.py --prompts"   # lista os prompts avançados (APF)
+webui = "bun ./webui/server.ts"        # web UI técnica (Bun + ponte LangGraph)
+webui-build = "bun build ./webui/src/app.ts --outdir ./webui/public/dist"  # bundle de produção
+webui-test = "bun test ./webui/*.test.ts"  # testes do servidor web (bridge fake)
 
 # ---------------------------------------------------------------------
 # Dependências conda (binários nativos + runtime)
@@ -41,6 +44,7 @@ prompts = "python main.py --prompts"   # lista os prompts avançados (APF)
 python = ">=3.11,<3.12"
 rich = ">=13.7.0"                 # renderização visual / TUI
 python-dotenv = ">=1.0.0"         # carregamento de .env (isolamento de chaves)
+bun = ">=1.3.11,<2"
 
 # ---------------------------------------------------------------------
 # Dependências pip (resolvidas pelo Pixi via PEP 723 / pypi-dependencies)
