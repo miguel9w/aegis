@@ -108,6 +108,10 @@ cp config/env/.env.example config/env/.env
 #        OpenRouter: https://openrouter.ai/api/v1        + openrouter/auto
 #        Zen (gratuito): https://opencode.ai/zen/v1      + deepseek-v4-flash-free
 ```
+> **Modo thinking:** quando o provider (ex.: DeepSeek/Zen) responde com tool_calls
+> em modo thinking, o núcleo devolve o `reasoning_content` no passo seguinte —
+> o agregador do langchain o descartaria e o provider rejeitaria a requisição
+> (HTTP 400 intermitente em turnos com ferramentas). Sem ação necessária.
 
 ### 3. Executar
 
