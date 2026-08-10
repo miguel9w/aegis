@@ -16,6 +16,7 @@ import json
 import time
 from typing import Any, Callable
 
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -37,6 +38,34 @@ from .prompts import extrair_memoria, reflexao_auto_correcao, resumir_historico,
 # ---------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------
+
+class _CapturaRaciocinio(BaseCallbackHandler):
+    """Coleta o `reasoning_content` dos chunks do stream (DeepSeek/Zen).
+
+    O DeepSeek em modo thinking EMITE o raciocínio nos chunks, mas o
+    agregador do langchain DESCARTÁ-O ao montar a AIMessage final. Quando há
+    tool_calls, o provider exige o campo de volta no passo seguinte —
+    sem ele, HTTP 400 ("reasoning_content must be passed back to the API").
+    O `no_agente` injeta o texto coletado nos additional_kwargs da mensagem.
+
+    O gancho é o `on_llm_new_token`: o langchain-openai chama-o por chunk
+    passando o ChatGenerationChunk em `chunk=` — o reasoning vem em
+    `chunk.message.additional_kwargs` e é re-coletado daqui (o agregador da
+    AIMessage final o perde).
+    """
+
+    def __init__(self, caixa: dict[str, str]) -> None:
+        self.caixa = caixa
+
+    def on_llm_new_token(self, token: str, *, chunk: Any = None, **kwargs: Any) -> None:
+        if chunk is None:
+            return
+        msg = getattr(chunk, "message", None)
+        if msg is None:
+            return
+        razao = (getattr(msg, "additional_kwargs", None) or {}).get("reasoning_content")
+        if isinstance(razao, str) and razao:
+            self.caixa["texto"] += razao
 
 from .config_json import carregar_config_json as _cfg_json
 
@@ -129,9 +158,22 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         system = SystemMessage(texto_sistema)
         mensagens = [system, *state["mensagens"]]
         # tag "resposta" → a TUI filtra apenas os tokens desta chamada no streaming
-        resposta = com_retry(
-            lambda: llm_com_ferramentas.with_config(tags=["resposta"]).invoke(mensagens)
-        )
+        # callbacks: captura o reasoning_content dos chunks — o provider
+        # DeepSeek/Zen exige devolvê-lo quando há tool_calls (senão HTTP 400)
+        caixa_raciocinio: dict[str, str] = {"texto": ""}
+
+        def invocar() -> Any:
+            caixa_raciocinio["texto"] = ""  # retry = tentativa limpa
+            return llm_com_ferramentas.with_config(
+                tags=["resposta"], callbacks=[_CapturaRaciocinio(caixa_raciocinio)]
+            ).invoke(mensagens)
+
+        resposta = com_retry(invocar)
+        razao = caixa_raciocinio["texto"]
+        if razao and getattr(resposta, "tool_calls", None):
+            resposta.additional_kwargs = {
+                **resposta.additional_kwargs, "reasoning_content": razao,
+            }
         return {"mensagens": [resposta], "perfil_usuario": perfil or {}}
 
     # ---- 2. Execução ---------------------------------------------------

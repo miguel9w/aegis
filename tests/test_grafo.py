@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 
 from aegis.config import Config
 from aegis.grafo import montar_grafo
@@ -175,3 +177,93 @@ def test_compressao_trunca_historico(tmp_path):
     r = app.invoke({"mensagens": [HumanMessage("m2")]}, config=config)
     # após compressão, o resumo deve ficar no estado
     assert r.get("contexto_comprimido"), "compressão não produziu resumo"
+
+
+# ---------------------------------------------------------------------
+# Reasoning_content (DeepSeek/Zen): devolver o raciocínio quando há tool_calls
+# ---------------------------------------------------------------------
+
+class ModeloComRaciocinioFake(BaseChatModel):
+    """Emula o DeepSeek/Zen no modo thinking: o `_generate` dispara o
+    callback `on_chat_model_stream` com um chunk de reasoning_content (como o
+    provider faz no streaming) e devolve tool_calls."""
+
+    @property
+    def _llm_type(self) -> str:
+        return "fake-raciocinio"
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        if run_manager is not None:
+            run_manager.on_llm_new_token(
+                "",
+                chunk=ChatGenerationChunk(
+                    message=AIMessageChunk(
+                        content="",
+                        additional_kwargs={"reasoning_content": "vou ler e listar"},
+                    )
+                ),
+            )
+        msg = AIMessage(content="", tool_calls=[
+            {"name": "ler_arquivo", "args": {"caminho": "aegis/config.py"},
+             "id": "call_1", "type": "tool_call"},
+        ])
+        return ChatResult(generations=[ChatGeneration(message=msg)])
+
+    def bind_tools(self, tools, **kwargs) -> "ModeloComRaciocinioFake":
+        return self
+
+
+def test_no_agente_devolve_reasoning_quando_ha_tool_calls():
+    """O provider exige o reasoning_content de volta quando a resposta tem
+    tool_calls; o agregador do langchain o descarta — o nó captura nos chunks
+    e injeta nos additional_kwargs (fix do HTTP 400 do zen)."""
+    from aegis.config import Config as _C
+    from aegis.nos import fabricar_nos
+    cfg = _C()
+    cfg.multiagente_ativos = False
+    nos = fabricar_nos(ModeloComRaciocinioFake(), [], None, cfg)
+    saida = nos["no_agente"]({
+        "mensagens": [HumanMessage(content="leia e liste")],
+        "metadados_sessao": {"thread_id": "t-razao"},
+    })
+    msg = saida["mensagens"][0]
+    assert msg.tool_calls  # resposta com chamadas → provider exige o raciocínio
+    assert msg.additional_kwargs.get("reasoning_content") == "vou ler e listar"
+
+
+def test_no_agente_sem_tool_calls_nao_injeta_reasoning():
+    """Sem tool_calls o provider não exige o campo — e não deve vazar."""
+    from aegis.config import Config as _C
+    from aegis.nos import fabricar_nos
+
+    class ModeloRespostaDireta(BaseChatModel):
+        @property
+        def _llm_type(self) -> str:
+            return "fake-direta"
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+            if run_manager is not None:
+                run_manager.on_llm_new_token(
+                    "",
+                    chunk=ChatGenerationChunk(
+                        message=AIMessageChunk(
+                            content="",
+                            additional_kwargs={"reasoning_content": "pensando..."},
+                        )
+                    ),
+                )
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="ok direto"))])
+
+        def bind_tools(self, tools, **kwargs) -> "ModeloRespostaDireta":
+            return self
+
+    cfg = _C()
+    cfg.multiagente_ativos = False
+    nos = fabricar_nos(ModeloRespostaDireta(), [], None, cfg)
+    saida = nos["no_agente"]({
+        "mensagens": [HumanMessage(content="oi")],
+        "metadados_sessao": {"thread_id": "t-direta"},
+    })
+    msg = saida["mensagens"][0]
+    assert not msg.tool_calls
+    assert "reasoning_content" not in msg.additional_kwargs
