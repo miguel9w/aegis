@@ -305,6 +305,23 @@ O desacoplamento já permite (sem code change estrutural):
 
 ---
 
+## 🗺️ Roteiro do núcleo — 23 fases
+
+Plano completo e detalhado (objetivo, mudanças de estado/grafo, testes e
+critério de aceite por fase) em **`docs/planejamento-nucleo.md`**. Três
+blocos:
+
+| Bloco | Fases | Tema |
+|---|---|---|
+| **C — raciocínio** | C1 reflexão pós-turno · C2 plan-and-execute · C3 verify-then-answer · C4 memória estrutural · C5 anti-injeção · C6 billing guard · C7 sandbox remoto | aprender → planejar → verificar → lembrar → proteger → medir → executar |
+| **G — disciplina de entrega (GSD)** | G1 modo entrega (discuss→plan→execute→verify→ship) · G2 UAT conversacional · G3 revisão por pares · G4 aprendizados versionados + grafo · G5 pausa/retomada + reversão | o agente trabalha em ciclos com garantias (Git. Ship. Done.) |
+| **X — expansão/qualidade** | X1 subagentes · X2 skills · X3 fact-check · X4 early exit · X5 perguntar_humano · X6 observabilidade · X7 self-critique · X8 modo conservador · X9 preços · X10 property tests · X11 sanitização | capacidades extras + endurecimento |
+
+Ordem: **C1 → C2 → C3 → C4 → G1 → G2 → G3 → C5 → C6 → C7 → G4 → G5 → X1…X11**,
+verificando (pytest + bun + smoke) entre cada fase.
+
+---
+
 ## 📄 Licença
 
 MIT — sinta-se livre para usar e modificar. Construído com ❤️ e LangGraph.
