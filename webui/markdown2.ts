@@ -96,7 +96,15 @@ export function renderarMarkdownAvancado(texto: string): string {
   trabalho = renderizarTabelas(trabalho, slots);
   trabalho = renderizarLinks(trabalho, slots);
   let html = renderMarkdown(trabalho);
-  html = html.replace(/@@SLOT_(\d+)@@/g, (_t, i: string) => slots[Number(i)] ?? "");
+  // Os slots são aninháveis (katex dentro de células de tabela): o replace de
+  // uma passagem só resolvia o nível externo e os internos vazavam como
+  // `@@SLOT_N@@`. Resolve em loop até esgotar (DAG — slots só apontam p/ os
+  // já criados, então o loop sempre termina).
+  let restantes = 0;
+  do {
+    restantes = (html.match(/@@SLOT_\d+@@/g) ?? []).length;
+    html = html.replace(/@@SLOT_(\d+)@@/g, (_t, i: string) => slots[Number(i)] ?? "");
+  } while (restantes > 0);
   if (blocosMermaid.length) {
     html = html.replace(/@@MERMAID_(\d+)@@/g, (_t, i: string) =>
       `<div class="mermaid">${escapeHtml(blocosMermaid[Number(i)])}</div>`);

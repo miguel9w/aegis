@@ -85,22 +85,30 @@ describe("W4 — fila de jobs e SSE", () => {
       corpo += new TextDecoder().decode(pedaco);
     }
     // o fake emite: token → tool_inicio → tool_fim → arquivo → comando →
-    // subgrafo → veredito → fim
+    // subgrafo → veredito → fim — o protocolo inteiro é assertado (não só o
+    // comentário): se um kind novo quebrar o contrato, o teste acusa
     expect(corpo).toContain(`"job_id":"${jobId}"`);
     expect(corpo).toContain('"kind":"token"');
     expect(corpo).toContain('"kind":"tool_inicio"');
+    expect(corpo).toContain('"kind":"tool_fim"');
     expect(corpo).toContain('"kind":"arquivo"');
+    expect(corpo).toContain('"kind":"comando"');
+    expect(corpo).toContain('"kind":"subgrafo"');
     expect(corpo).toContain('"kind":"veredito"');
     expect(corpo).toContain('"kind":"fim"');
+    // turno normal NÃO é interrompido
+    expect(corpo).not.toContain('"interrompido":true');
   });
 
-  test("POST sem texto → 400", async () => {
-    const res = await fetch(`${base}/api/mensagem`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    expect(res.status).toBe(400);
+  test("POST sem texto (ausente OU vazio) → 400", async () => {
+    for (const corpo of [{}, { texto: "" }, { texto: "   " }]) {
+      const res = await fetch(`${base}/api/mensagem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo),
+      });
+      expect(res.status).toBe(400);
+    }
   });
 
   test("GET /api/estado responde via ponte (comandar)", async () => {
@@ -170,9 +178,9 @@ describe("W7 — comandos melhorados (sugestões, slash, arquivos)", () => {
     const fora = await fetch(`${base}/api/arquivo?caminho=${encodeURIComponent("../README.md")}`);
     expect(fora.status).toBe(404);
 
-    const binario = await fetch(`${base}/api/arquivo?caminho=${encodeURIComponent("webui/node_modules/katex/package.json")}`);
-    // existe, mas node_modules não é texto listável — 404 pelo ext/limite é aceitável
-    expect(binario.status).toBe(404);
+    const ignorado = await fetch(`${base}/api/arquivo?caminho=${encodeURIComponent("webui/node_modules/katex/package.json")}`);
+    // existe, mas cai na lista de diretórios ignorados (node_modules) — 404
+    expect(ignorado.status).toBe(404);
   });
 });
 
@@ -203,18 +211,26 @@ describe("W5b — interromper e autorizar", () => {
       });
       const { job_id: jobId } = (await res.json()) as { job_id: string };
 
-      // consome o SSE em paralelo
-      const sse = await fetch(`${baseLenta}/api/stream?job_id=${jobId}`);
+      // consome o SSE em paralelo (timeout de segurança: nunca pendura a suíte)
+      const sse = await fetch(`${baseLenta}/api/stream?job_id=${jobId}`, {
+        signal: AbortSignal.timeout(8_000),
+      });
+      let corpo = "";
       const leitura = (async () => {
-        let corpo = "";
         for await (const pedaco of sse.body!) {
           corpo += new TextDecoder().decode(pedaco);
         }
         return corpo;
       })();
 
-      // espera alguns frames saírem, então interrompe
-      await Bun.sleep(120);
+      // espera a CONDIÇÃO real (primeiro token no stream) em vez de dormir um
+      // número mágico — a máquina pode ser lenta OU rápida demais; o que
+      // importa é que o turno esteja EM ANDAMENTO antes de interromper
+      const comeco = Date.now();
+      while (!corpo.includes('"kind":"token"')) {
+        if (Date.now() - comeco > 5_000) throw new Error("timeout aguardando o primeiro token");
+        await Bun.sleep(10);
+      }
       const parar = await fetch(`${baseLenta}/api/interromper`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -223,12 +239,12 @@ describe("W5b — interromper e autorizar", () => {
       expect(parar.status).toBe(200);
       expect(((await parar.json()) as { ok: boolean }).ok).toBe(true);
 
-      const corpo = await leitura;
+      const corpoFinal = await leitura;
       // saíram frames reais antes do cancelamento…
-      expect(corpo).toContain('"kind":"token"');
+      expect(corpoFinal).toContain('"kind":"token"');
       // …e o stream FECHOU com o fim interrompido (não com o fim normal)
-      expect(corpo).toContain('"interrompido":true');
-      expect(corpo).toContain('"kind":"fim"');
+      expect(corpoFinal).toContain('"interrompido":true');
+      expect(corpoFinal).toContain('"kind":"fim"');
     } finally {
       servidorLento.stop();
       ponteLenta.fechar();

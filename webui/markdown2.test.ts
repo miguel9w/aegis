@@ -39,6 +39,18 @@ describe("W5e — markdown avançado", () => {
     expect(html).toContain("<td>rust</td>");
   });
 
+  test("tabela com LaTeX resolve slots ANINHADOS (regressão @@SLOT_N@@)", () => {
+    // o katex roda ANTES da tabela → os slots de fórmula ficam dentro do slot
+    // da tabela; o replace de uma passagem vazava @@SLOT_N@@ literal
+    const html = renderarMarkdownAvancado(
+      "| Método | Fórmula |\n| --- | --- |\n| Potência | $\\frac{x^{n+1}}{n+1}$ |\n| Exponencial | $e^x$ |",
+    );
+    expect(html).not.toContain("@@SLOT_");
+    expect(html).toContain("<table>");
+    expect(html).toContain("<td>Potência</td>");
+    expect(html).toContain('class="katex"'); // fórmula renderizada dentro da célula
+  });
+
   test("link http vira <a> seguro e caminho interno vira <code>", () => {
     const html = renderarMarkdownAvancado("[docs](https://aegis.dev) e [x](./local.md)");
     expect(html).toContain('<a href="https://aegis.dev"');
