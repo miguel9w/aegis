@@ -103,6 +103,7 @@ def montar_grafo(
     grafo.add_node("no_reflexao_auto_correcao", nos["no_reflexao_auto_correcao"])
     grafo.add_node("no_compressao_contexto", nos["no_compressao_contexto"])
     grafo.add_node("no_memoria", nos["no_memoria"])
+    grafo.add_node("no_reflexao_pos_turno", nos["no_reflexao_pos_turno"])
 
     # --- Multiagente (F2): orquestrador na entrada, subgrafo por domínio ----
     if cfg.multiagente_ativos:
@@ -149,7 +150,8 @@ def montar_grafo(
     )
 
     grafo.add_edge("no_compressao_contexto", "no_memoria")
-    grafo.add_edge("no_memoria", END)
+    grafo.add_edge("no_memoria", "no_reflexao_pos_turno")
+    grafo.add_edge("no_reflexao_pos_turno", END)
 
     return grafo.compile(checkpointer=checkpointer, store=store)
 

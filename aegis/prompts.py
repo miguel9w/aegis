@@ -146,6 +146,25 @@ def extrair_memoria() -> str:
     )
 
 
+def reflexao_pos_turno() -> str:
+    """Prompt do nó de reflexão pós-turno (C1): extrair lições duráveis."""
+    return (
+        "Você é o analisador de aprendizado do Aegis. Recebeu a trajetória de "
+        "execução de um turno (ferramentas chamadas, resultados e erros).\n"
+        "1. Extraia até 3 LIÇÕES duráveis e reutilizáveis — o que o agente deve "
+        "fazer diferente ou evitar na próxima vez (ex.: 'verificar se o caminho "
+        "existe antes de gravar').\n"
+        "2. Prioridade: 'alta' para lições que evitam erros repetidos ou perda "
+        "de dados; 'media' para melhoria de eficiência; 'baixa' para ajustes "
+        "cosméticos.\n"
+        "3. NÃO inclua detalhes temporários do turno (valores, datas, respostas "
+        "pontuais).\n"
+        "Retorne APENAS um JSON válido: "
+        '{"licoes": [{"texto": "...", "prioridade": "alta"|"media"|"baixa"}]}. '
+        'Se nada for durável, retorne {"licoes": []}.'
+    )
+
+
 def sistema_pesquisador() -> str:
     """Prompt do subagente PESQUISADOR (persona de pesquisa profunda)."""
     return (

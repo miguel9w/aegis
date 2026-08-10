@@ -122,3 +122,8 @@ def namespace_perfil() -> tuple[str, ...]:
 def namespace_memoria(thread_id: str) -> tuple[str, ...]:
     """Namespace de memória por tópico/conversa."""
     return ("aegis", "memoria", thread_id)
+
+
+def namespace_licoes() -> tuple[str, ...]:
+    """Namespace global de lições aprendidas (memória procedimental, C1)."""
+    return ("aegis", "licoes")

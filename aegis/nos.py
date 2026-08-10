@@ -32,8 +32,8 @@ from langgraph.store.base import BaseStore
 from .config import Config
 from .estado import EstadoAegis
 from .llm import com_retry
-from .memoria import namespace_perfil
-from .prompts import extrair_memoria, reflexao_auto_correcao, resumir_historico, sistema
+from .memoria import namespace_licoes, namespace_perfil
+from .prompts import extrair_memoria, reflexao_auto_correcao, reflexao_pos_turno, resumir_historico, sistema
 
 # ---------------------------------------------------------------------
 # Helpers
@@ -122,6 +122,47 @@ def _parsear_json_fatos(texto: str) -> dict[str, Any]:
         return {}
 
 
+def _parsear_licoes(texto: str) -> list[tuple[str, str]]:
+    """Parse tolerante do JSON de lições: [(texto, prioridade)] (máx. 3)."""
+    import re
+
+    texto = texto.strip()
+    m = re.search(r"\{.*\}", texto, re.DOTALL)
+    if not m:
+        return []
+    try:
+        dados = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return []
+    licoes = dados.get("licoes", []) if isinstance(dados, dict) else []
+    saida: list[tuple[str, str]] = []
+    for item in licoes[:3]:
+        if isinstance(item, str) and item.strip():
+            saida.append((item.strip(), "media"))
+        elif isinstance(item, dict):
+            texto_licao = str(item.get("texto", "")).strip()
+            if texto_licao:
+                pr = str(item.get("prioridade", "media")).lower()
+                if pr not in ("alta", "media", "baixa"):
+                    pr = "media"
+                saida.append((texto_licao, pr))
+    return saida
+
+
+def _prioridade_por_repeticao(registros: list[dict]) -> bool:
+    """True se a MESMA ferramenta falhou ≥2× com o mesmo erro no turno.
+
+    Repetição de falha é o sinal mais forte de lição durável — eleva a
+    prioridade independente do que a reflexão LLM sugerir.
+    """
+    contagem: dict[str, int] = {}
+    for r in registros:
+        if r.get("erro"):
+            chave = f"{r.get('nome')}|{str(r.get('resultado'))[:60]}"
+            contagem[chave] = contagem.get(chave, 0) + 1
+    return any(n >= 2 for n in contagem.values())
+
+
 # ---------------------------------------------------------------------
 # Fábrica de nós (recebe LLM, ferramentas, store e config por closure)
 # ---------------------------------------------------------------------
@@ -155,6 +196,23 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
             )
         else:
             texto_sistema = sistema(perfil, resumo, ferramentas, state.get("metadados_sessao"))
+
+        # Lições aprendidas relevantes à pergunta (C1 — memória procedimental).
+        # Recall barato (IDF, sem LLM); só injeta quando há conteúdo relevante,
+        # mantendo o system byte-idêntico nos demais casos.
+        if store is not None:
+            try:
+                from .recuperacao import recuperar_licoes
+                consulta = " ".join(
+                    str(getattr(m, "content", ""))[:200]
+                    for m in state["mensagens"][-3:]
+                )
+                bloco_licoes = recuperar_licoes(store, consulta)
+                if bloco_licoes:
+                    texto_sistema = texto_sistema + "\n\n" + bloco_licoes
+            except Exception:  # noqa: BLE001 — recall é otimização, nunca bloqueia
+                pass
+
         system = SystemMessage(texto_sistema)
         mensagens = [system, *state["mensagens"]]
         # tag "resposta" → a TUI filtra apenas os tokens desta chamada no streaming
@@ -291,10 +349,59 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                 traceback.print_exc()
         return {}
 
+    # ---- 6. Reflexão pós-turno (C1) ---------------------------------------
+    def no_reflexao_pos_turno(state: EstadoAegis) -> dict:
+        """Extrai lições duráveis da trajetória do turno e grava na Store.
+
+        Roda no fim do grafo (após no_memoria), só quando o turno usou
+        ferramentas. Sem ferramentas → zero custo, nada gravado. Erro repetido
+        (mesma ferramenta + mesmo erro ≥2×) eleva a prioridade da lição.
+        """
+        if not cfg.memoria_ativa or store is None:
+            return {"licoes_turno": []}
+        registros = state.get("registros_ferramentas") or []
+        if not registros:
+            return {"licoes_turno": []}
+        try:
+            trajetoria = "\n".join(
+                f"- {r.get('nome')}: {_truncar(r.get('resultado', ''), 300)}"
+                for r in registros[-8:]
+            )
+            resp = com_retry(lambda: llm.invoke([
+                SystemMessage(reflexao_pos_turno()),
+                HumanMessage(f"Trajetória do turno:\n{trajetoria}"),
+            ]))
+            licoes = _parsear_licoes(resp.content)
+            repetiu_erro = _prioridade_por_repeticao(registros)
+            gravadas: list[str] = []
+            ns = namespace_licoes()
+            for texto, prioridade in licoes:
+                if repetiu_erro or prioridade == "alta":
+                    prioridade_efetiva = "alta"
+                else:
+                    prioridade_efetiva = prioridade
+                store.put(
+                    ns,
+                    f"licao_{int(time.time_ns())}_{len(gravadas)}",
+                    {
+                        "texto": texto,
+                        "prioridade": prioridade_efetiva,
+                        "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    },
+                )
+                gravadas.append(texto)
+            return {"licoes_turno": gravadas}
+        except Exception:  # noqa: BLE001 — reflexão falha sem derrubar o fluxo
+            if cfg.dev:
+                import traceback
+                traceback.print_exc()
+            return {"licoes_turno": []}
+
     return {
         "no_agente": no_agente,
         "no_ferramentas": no_ferramentas,
         "no_reflexao_auto_correcao": no_reflexao_auto_correcao,
         "no_compressao_contexto": no_compressao_contexto,
         "no_memoria": no_memoria,
+        "no_reflexao_pos_turno": no_reflexao_pos_turno,
     }

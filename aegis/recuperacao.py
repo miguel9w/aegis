@@ -117,3 +117,56 @@ def pesquisar_memoria(consulta: str, limite: int = 5) -> str:
     if not trechos:
         return "Nenhum resultado relevante na memória para essa consulta."
     return "Memória recuperada:\n" + "\n".join(f"- {t}" for t in trechos)
+
+
+# ---------------------------------------------------------------------
+# Recall de lições aprendidas (C1 — memória procedimental)
+# ---------------------------------------------------------------------
+
+def recuperar_licoes(store: Any, consulta: str, limite: int = 3) -> str:
+    """Recupera lições aprendidas relevantes à consulta (mesmo IDF do RAG-lite).
+
+    Retorna um bloco formatado para injeção no prompt de sistema, ou "" quando
+    não há lições relevantes (menos de `limite` com score > 0) — o nó do agente
+    só acrescenta o bloco se houver conteúdo, mantendo o system byte-idêntico
+    nos demais casos.
+    """
+    if store is None or not consulta.strip():
+        return ""
+    try:
+        itens: list[tuple[str, str]] = []
+        for item in store.search(("aegis", "licoes"), limit=40):
+            valor = item.value
+            texto = ""
+            if isinstance(valor, dict):
+                texto = str(valor.get("texto", ""))
+            elif isinstance(valor, str):
+                texto = valor
+            if texto and texto.strip():
+                itens.append((item.key, texto))
+    except Exception:  # noqa: BLE001 — recall nunca derruba o agente
+        return ""
+    if not itens:
+        return ""
+
+    corpus = [_tokenizar(texto) for _, texto in itens]
+    idf = _idf(corpus)
+    consulta_tok = _tokenizar(consulta)
+
+    ranqueados = sorted(
+        ((i, _pontuar(consulta_tok, doc, idf)) for i, doc in enumerate(corpus)),
+        key=lambda par: par[1],
+        reverse=True,
+    )
+    trechos: list[str] = []
+    for indice, score in ranqueados:
+        if score <= 0:
+            break
+        trechos.append(itens[indice][1].strip().replace("\n", " ")[:300])
+        if len(trechos) >= limite:
+            break
+    if not trechos:
+        return ""
+    return "## Lições aprendidas (memória procedimental)\n" + "\n".join(
+        f"- {t}" for t in trechos
+    )

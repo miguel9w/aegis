@@ -5,6 +5,7 @@ from __future__ import annotations
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from pydantic import PrivateAttr
 
 from aegis.config import Config
 from aegis.grafo import montar_grafo
@@ -267,3 +268,150 @@ def test_no_agente_sem_tool_calls_nao_injeta_reasoning():
     msg = saida["mensagens"][0]
     assert not msg.tool_calls
     assert "reasoning_content" not in msg.additional_kwargs
+
+# ---------------------------------------------------------------------
+# C1 — Reflexão pós-turno: lições aprendidas na Store + recall
+# ---------------------------------------------------------------------
+
+def _resposta_licoes(licoes: list[dict]):
+    import json
+    return AIMessage(content=json.dumps({"licoes": licoes}, ensure_ascii=False))
+
+
+class ModeloEspiao(BaseChatModel):
+    """Fake que CAPTURA as mensagens recebidas (para inspecionar o system)."""
+
+    _chamadas: list = PrivateAttr(default_factory=list)
+    _saida: str = PrivateAttr(default="ok.")
+
+    def __init__(self, saida: str | None = None):
+        super().__init__()
+        if saida:
+            self._saida = saida
+
+    @property
+    def _llm_type(self) -> str:
+        return "fake-espiao"
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        self._chamadas.append(messages)
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=self._saida))])
+
+    def bind_tools(self, tools, **kwargs) -> "ModeloEspiao":
+        return self
+
+    @property
+    def chamadas(self) -> list:
+        return self._chamadas
+
+
+def test_reflexao_pos_turno_grava_licoes(tmp_path):
+    """Turno com ferramentas → reflexão extrai e grava lições na Store."""
+    from aegis.memoria import namespace_licoes
+    modelo = ModeloFake()
+    modelo.configurar([
+        chamada_tool("calculadora", {"expressao": "2 + 2"}, id_chamada="call_a"),
+        AIMessage(content="Resultado: 4."),
+        _resposta_licoes([{"texto": "sempre validar a entrada antes de calcular", "prioridade": "media"}]),
+    ])
+    app, cfg = _app(tmp_path, modelo)
+    resultado = app.invoke(
+        {"mensagens": [HumanMessage("calcule 2+2")],
+         "metadados_sessao": {"thread_id": cfg.thread_id}},
+        config={"configurable": {"thread_id": cfg.thread_id}},
+    )
+    assert resultado.get("licoes_turno"), "lição não registrada no estado do turno"
+    itens = list(criar_store_sync(cfg.banco).search(namespace_licoes()))
+    assert itens, "lição não gravada na Store"
+    valor = itens[0].value
+    assert "validar" in valor["texto"]
+    assert valor["prioridade"] == "media"
+
+
+def test_reflexao_sem_ferramentas_nao_grava(tmp_path):
+    """Turno sem ferramentas → nenhuma lição (zero custo, nada gravado)."""
+    from aegis.memoria import namespace_licoes
+    modelo = ModeloFake()
+    modelo.configurar([AIMessage(content="oi!")])
+    app, cfg = _app(tmp_path, modelo)
+    resultado = app.invoke(
+        {"mensagens": [HumanMessage("oi")],
+         "metadados_sessao": {"thread_id": cfg.thread_id}},
+        config={"configurable": {"thread_id": cfg.thread_id}},
+    )
+    assert not resultado.get("licoes_turno")
+    assert not list(criar_store_sync(cfg.banco).search(namespace_licoes()))
+
+
+def test_no_reflexao_pos_turno_marca_prioridade_alta_na_repeticao(tmp_path):
+    """A MESMA ferramenta falhando ≥2× no turno → lição com prioridade alta."""
+    from aegis.config import Config as _C
+    from aegis.memoria import namespace_licoes
+    from aegis.nos import fabricar_nos
+    modelo = ModeloFake()
+    modelo.configurar([
+        _resposta_licoes([{"texto": "não repetir o mesmo comando que falha", "prioridade": "baixa"}]),
+    ])
+    cfg = _C()
+    cfg.memoria_ativa = True
+    store = criar_store_sync(tmp_path / "prio.db")
+    nos = fabricar_nos(modelo, [], store, cfg)
+    nos["no_reflexao_pos_turno"]({
+        "registros_ferramentas": [
+            {"nome": "comando_sandbox", "resultado": "ERRO_FERRAMENTA: zzz", "erro": True},
+            {"nome": "comando_sandbox", "resultado": "ERRO_FERRAMENTA: zzz", "erro": True},
+        ],
+    })
+    itens = list(store.search(namespace_licoes()))
+    assert itens and itens[0].value["prioridade"] == "alta", "repetição deveria elevar a prioridade"
+
+
+def test_recuperar_licoes_por_relevancia(tmp_path):
+    """Recall: só lições relevantes à consulta voltam (ranqueamento IDF)."""
+    from aegis.memoria import namespace_licoes
+    from aegis.recuperacao import recuperar_licoes
+    store = criar_store_sync(tmp_path / "rec.db")
+    store.put(namespace_licoes(), "l1",
+              {"texto": "usar comandos curtos ao gravar arquivos grandes", "prioridade": "alta"})
+    store.put(namespace_licoes(), "l2",
+              {"texto": "receita de bolo de chocolate com 3 ovos", "prioridade": "baixa"})
+    bloco = recuperar_licoes(store, "como gravar um arquivo grande?")
+    assert "comandos curtos" in bloco
+    assert "bolo" not in bloco
+
+
+def test_no_agente_injeta_licoes_relevantes_no_system(tmp_path):
+    """Lições da Store relevantes à pergunta entram no system do turno."""
+    from aegis.memoria import namespace_licoes
+    from aegis.nos import fabricar_nos
+    store = criar_store_sync(tmp_path / "inj2.db")
+    store.put(namespace_licoes(), "l1",
+              {"texto": "nunca gerar arquivo inteiro em um único comando", "prioridade": "alta"})
+    espiao = ModeloEspiao()
+    cfg = _cfg(tmp_path)
+    nos = fabricar_nos(espiao, [], store, cfg)
+    nos["no_agente"]({
+        "mensagens": [HumanMessage("como gerar um arquivo grande?")],
+        "metadados_sessao": {"thread_id": "t-esp"},
+    })
+    system = espiao.chamadas[0][0]
+    assert "Lições aprendidas" in system.content
+    assert "nunca gerar arquivo inteiro" in system.content
+
+
+def test_no_agente_sem_licoes_relevantes_nao_injeta_bloco(tmp_path):
+    """Pergunta sem relação → nenhum bloco de lições no system (sem ruído)."""
+    from aegis.memoria import namespace_licoes
+    from aegis.nos import fabricar_nos
+    store = criar_store_sync(tmp_path / "inj3.db")
+    store.put(namespace_licoes(), "l1",
+              {"texto": "receita de bolo de chocolate com 3 ovos", "prioridade": "baixa"})
+    espiao = ModeloEspiao()
+    cfg = _cfg(tmp_path)
+    nos = fabricar_nos(espiao, [], store, cfg)
+    nos["no_agente"]({
+        "mensagens": [HumanMessage("qual a capital da França?")],
+        "metadados_sessao": {"thread_id": "t-esp2"},
+    })
+    system = espiao.chamadas[0][0]
+    assert "Lições aprendidas" not in system.content

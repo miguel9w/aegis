@@ -72,3 +72,7 @@ class EstadoAegis(TypedDict):
 
     # Modo conservador (provider free: comandos curtos, estratégia rebaixada)
     modo_conservador: NotRequired[bool]
+
+    # --- Reflexão pós-turno (C1) ---
+    # Lições extraídas no fim do turno (memória procedimental, Store licoes/)
+    licoes_turno: NotRequired[list[str]]
