@@ -143,6 +143,7 @@
 
   /* entrada */
   .entrada-wrap { flex: 0 0 auto; padding: 12px 16px; border-top: 1px solid var(--borda); background: var(--painel); display: flex; gap: 10px; align-items: flex-end; }
+  .entrada-pilha { flex: 1; position: relative; display: flex; flex-direction: column; gap: 6px; }
   #entrada {
     flex: 1; resize: none; background: var(--painel2); color: var(--texto);
     border: 1px solid var(--borda); border-radius: 10px; padding: 10px 12px;
@@ -154,6 +155,40 @@
     padding: 10px 18px; border-radius: 10px; cursor: pointer; font-size: 13px;
   }
   #enviar:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* sugestões do input: `/`, `@`, `-/` */
+  #sugestoes {
+    position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; z-index: 30;
+    max-height: 280px; overflow-y: auto; background: var(--painel2);
+    border: 1px solid var(--borda); border-radius: 10px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  }
+  .sug-grupo {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--fraca); padding: 7px 10px 3px;
+  }
+  .sug-item {
+    display: flex; gap: 10px; align-items: baseline; padding: 6px 10px;
+    cursor: pointer; font-size: 13px;
+  }
+  .sug-item:hover { background: var(--borda); }
+  .sug-item.selecionada { background: var(--accent); color: #06121f; }
+  .sug-item .sug-rotulo { font-family: var(--mono); font-weight: 700; white-space: nowrap; }
+  .sug-item .sug-desc {
+    color: var(--fraca); font-size: 12px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sug-item.selecionada .sug-desc { color: rgba(6, 18, 31, 0.72); }
+
+  #anexos { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip-anexo {
+    display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+    background: var(--painel2); border: 1px solid var(--borda); border-radius: 999px;
+    padding: 3px 10px 3px 8px; font-family: var(--mono); font-size: 12px;
+  }
+  .chip-anexo span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip-anexo button { background: none; border: none; color: var(--fraca); cursor: pointer; font-size: 13px; padding: 0; }
+  .chip-anexo button:hover { color: #ff6b6b; }
 
   /* ------------------------------------------------------------ painel direito */
   .abas { display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--borda); }
@@ -290,7 +325,11 @@
     <section class="coluna col-chat">
       <div id="chat"><div class="turno-aegis"><div class="avatar-aegis">A</div><div class="resposta"><p style="color:var(--fraca)">Aegis web console online. Envie uma mensagem — a atividade do agente (ferramentas, arquivos, comandos, subagentes, vereditos) aparece no feed à esquerda e o streaming cru no painel <b>Wire</b>.</p></div></div></div>
       <div class="entrada-wrap">
-        <textarea id="entrada" rows="2" placeholder="mensagem para o Aegis… (Enter envia, Shift+Enter quebra linha)"></textarea>
+        <div class="entrada-pilha">
+          <div id="anexos"></div>
+          <div id="sugestoes" class="oculto"></div>
+          <textarea id="entrada" rows="2" placeholder="mensagem para o Aegis… (/ comando · @ agente · -/ arquivo — Tab completa)"></textarea>
+        </div>
         <button id="enviar">➤</button>
       </div>
     </section>

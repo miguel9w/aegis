@@ -339,7 +339,11 @@ def montar_orquestrador(cfg: Config) -> dict[str, Any]:
 
     def no_orquestrador(state: EstadoAegis) -> dict:
         pergunta = _ultima_pergunta(state)
-        dominio = classificar_dominio(pergunta)
+        # domínio explícito na sessão (ex.: web UI com `@programacao`) vence a
+        # classificação por regras; senão classifica pelos gatilhos do texto
+        meta = state.get("metadados_sessao") or {}
+        explicito = str(meta.get("dominio") or "")
+        dominio = explicito if explicito in DOMINIOS else classificar_dominio(pergunta)
         if not dominio:
             return {"dominio": "", "divisao": []}
         divisao = divisao_do_dominio(dominio, pergunta, cfg.max_especialistas)

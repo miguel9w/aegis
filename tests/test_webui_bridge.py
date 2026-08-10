@@ -15,15 +15,15 @@ from aegis.webui_bridge import (
     snapshot_estado,
 )
 
-from conftest import ModeloFake, chamada_tool
+from conftest import ModeloFake, basico_tools, chamada_tool
 
 
-def _coletar(app, texto, thread_id="teste-1", cfg=None):
-    return asyncio.run(_coletar_async(app, texto, thread_id, cfg))
+def _coletar(app, texto, thread_id="teste-1", cfg=None, dominio=""):
+    return asyncio.run(_coletar_async(app, texto, thread_id, cfg, dominio))
 
 
-async def _coletar_async(app, texto, thread_id, cfg):
-    return [f async for f in executar_job(app, texto, thread_id, "j-1", cfg)]
+async def _coletar_async(app, texto, thread_id, cfg, dominio):
+    return [f async for f in executar_job(app, texto, thread_id, "j-1", cfg, dominio)]
 
 
 def _grafo_simples(m, ferramentas=None, cfg=None):
@@ -217,6 +217,46 @@ def test_processar_ping_e_desconhecido():
 def test_processar_estado():
     saida = processar_comando({"cmd": "estado"})
     assert '"modelo"' in saida
+
+
+def test_processar_sugestoes_catalogo_real():
+    saida = json.loads(processar_comando({"cmd": "sugestoes"}))
+    dados = saida["dados"]
+    nomes = [c["nome"] for c in dados["comandos"]]
+    assert "ajuda" in nomes and "prompt" in nomes and "definir_papel" in nomes
+    agentes = [a["nome"] for a in dados["agentes"]]
+    assert "programacao" in agentes and "escrita" in agentes
+    assert isinstance(dados["papeis"], list) and isinstance(dados["prompts"], list)
+
+
+def test_processar_slash_status():
+    saida = json.loads(processar_comando({"cmd": "slash", "nome": "status"}))
+    assert "Aegis" in saida["texto"]
+
+
+def test_processar_slash_desconhecido_nao_derruba():
+    saida = json.loads(processar_comando({"cmd": "slash", "nome": "nao_existe"}))
+    assert "desconhecido" in saida["texto"]
+
+
+def test_executar_job_dominio_explicito_dispara_subgrafo(tmp_path):
+    """`dominio` na mensagem vira metadado → orquestrador roteia p/ subgrafo."""
+    from aegis.config import Config
+    from aegis.multiagente import classificar_dominio
+    c = Config()
+    c.banco = tmp_path / "multi.webui.db"
+    c.thread_id = "t-multi"
+    c.multiagente_ativos = True
+    c.orquestracoes_path = tmp_path / "orquestracoes.jsonl"
+    m = ModeloFake()
+    app = montar_grafo(m, basico_tools(), cfg=c)
+    # o texto NÃO tem gatilho de escrita (classificação por regras daria "")
+    assert classificar_dominio("organize essas ideias") == ""
+    frames = _coletar(app, "organize essas ideias", "t-multi", c, dominio="escrita")
+    inicio = next(f for f in frames
+                  if f["kind"] == "subgrafo" and f["evento"] == "start")
+    assert inicio["nome"] == "sub_escrita"
+    assert any(f["kind"] == "fim" for f in frames)
 
 
 def test_historico_threads(tmp_path, monkeypatch):

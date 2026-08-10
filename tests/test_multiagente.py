@@ -158,6 +158,28 @@ def test_orquestrador_registra_auditoria(tmp_path):
     assert json.loads(registros[0])["dominio"] == "programacao"
 
 
+def test_orquestrador_dominio_explicito_nos_metadados(tmp_path):
+    """`@escrita` na web UI força o subgrafo mesmo sem gatilho no texto."""
+    cfg = _cfg(tmp_path)
+    multi = montar_multiagente(cfg)
+    estado = {
+        "mensagens": [HumanMessage("organize essas ideias")],
+        "metadados_sessao": {"dominio": "escrita"},
+    }
+    saida = multi["no_orquestrador"](estado)
+    assert saida["dominio"] == "escrita"
+    assert len(saida["divisao"]) == 3
+    # sem metadados o texto não dispararia domínio nenhum
+    sem_meta = multi["no_orquestrador"]({"mensagens": [HumanMessage("organize essas ideias")]})
+    assert sem_meta["dominio"] == ""
+    # domínio desconhecido nos metadados cai na classificação por regras
+    regras = multi["no_orquestrador"]({
+        "mensagens": [HumanMessage("implemente um app")],
+        "metadados_sessao": {"dominio": "inexistente"},
+    })
+    assert regras["dominio"] == "programacao"
+
+
 def test_orquestrador_pergunta_simples_nao_dispara(tmp_path):
     multi = montar_multiagente(_cfg(tmp_path))
     saida = multi["no_orquestrador"]({"mensagens": [HumanMessage("oi")]})

@@ -56,5 +56,18 @@ rl.on("line", async (linha) => {
     console.log(JSON.stringify({ cmd: "estado", dados: { versao: "0.11.0", n_ferramentas: 47 } }));
   } else if (c.cmd === "autorizar") {
     console.log(JSON.stringify({ cmd: "autorizar", ok: true, comando: c.comando ?? "" }));
+  } else if (c.cmd === "sugestoes") {
+    console.log(JSON.stringify({
+      cmd: "sugestoes",
+      dados: {
+        comandos: [{ nome: "ajuda", descricao: "Mostra a lista de comandos" },
+                   { nome: "prompt", descricao: "[id|nenhum] — ativa/mostra o prompt avançado (APF)" }],
+        agentes: [{ nome: "programacao", descricao: "subgrafo multiagente" }],
+        prompts: [{ id: "revisor-codigo", versao: "1", descricao: "revisão de código" }],
+        papeis: [{ nome: "cientista", descricao: "papel de pesquisa" }],
+      },
+    }));
+  } else if (c.cmd === "slash") {
+    console.log(JSON.stringify({ cmd: "slash", nome: c.nome ?? "", texto: `(slash fake) ${(c.nome ?? "")} ${c.arg ?? ""}` }));
   }
 });

@@ -11,7 +11,8 @@ Frames (todos com `job_id`, exceto respostas de comando):
 - veredito — avaliador do multiagente (estado final)
 - fim (estado_final redigido + texto) / metrica / erro
 
-Comandos: mensagem (job_id, texto, thread_id), historico, estado, ping.
+Comandos: mensagem (job_id, texto, thread_id, dominio?), historico, estado,
+sugestoes, slash (nome, arg), ping.
 Execução: `python -m aegis.webui_bridge` (spawnada pelo Bun — 1 job por vez
 equivale à TUI; o Bun mantém a fila FIFO).
 """
@@ -214,8 +215,13 @@ async def executar_job(
     thread_id: str,
     job_id: str,
     cfg: Any = None,
+    dominio: str = "",
 ) -> AsyncIterator[dict]:
-    """Roda um turno e produz os frames do protocolo (token→…→fim/erro)."""
+    """Roda um turno e produz os frames do protocolo (token→…→fim/erro).
+
+    `dominio` (opcional) força o subgrafo multiagente correspondente —
+    metadado lido pelo orquestrador (web UI com `@programacao`).
+    """
     cfg = cfg or config
     inicio = time.monotonic()
     est = _estado_job()
@@ -231,7 +237,7 @@ async def executar_job(
     }
     entrada = {
         "mensagens": [HumanMessage(texto)],
-        "metadados_sessao": {"thread_id": thread_id},
+        "metadados_sessao": {"thread_id": thread_id, **({"dominio": dominio} if dominio else {})},
     }
     falha: Exception | str | None = None
     try:
@@ -304,6 +310,38 @@ async def listar_historico(app: Any, limite: int = _LIMITE_HISTORICO) -> list[di
         return []
 
 
+def snapshot_sugestoes() -> dict:
+    """Catálogo das sugestões do input da web UI (`/`, `@`).
+
+    Uma única fonte de verdade: os registros reais do Aegis (slash da TUI,
+    domínios multiagente, fichas APF e papéis) — o front nunca hardcoda.
+    """
+    from .multiagente import DOMINIOS
+    from .papeis import carregar_papeis
+    from .prompts_avancados import carregar_prompts_avancados
+    from .slash import IMPLEMENTADOS
+
+    dominios = [
+        {
+            "nome": nome,
+            "descricao": f"subgrafo multiagente: {', '.join(papel.split('(')[0].strip() for _, papel in d.slots[:2])}…",
+        }
+        for nome, d in DOMINIOS.items()
+    ]
+    prompts = [
+        {"id": str(f.get("id", "")), "versao": str(f.get("versao", "")),
+         "descricao": str(f.get("descricao", ""))}
+        for f in carregar_prompts_avancados().values() if f.get("id")
+    ]
+    papeis = [{"nome": p.nome, "descricao": p.descricao} for p in carregar_papeis()]
+    return {
+        "comandos": [{"nome": n, "descricao": d} for n, d in sorted(IMPLEMENTADOS.items())],
+        "agentes": dominios,
+        "prompts": prompts,
+        "papeis": papeis,
+    }
+
+
 def processar_comando(cmd: dict, app: Any = None) -> str:
     """Processa um comando síncrono e devolve a linha JSON de resposta."""
     acao = cmd.get("cmd")
@@ -314,6 +352,15 @@ def processar_comando(cmd: dict, app: Any = None) -> str:
         return json.dumps({"cmd": "interromper", "ok": True})
     if acao == "estado":
         return json.dumps({"cmd": "estado", "dados": snapshot_estado()}, ensure_ascii=False)
+    if acao == "sugestoes":
+        return json.dumps({"cmd": "sugestoes", "dados": snapshot_sugestoes()},
+                          ensure_ascii=False)
+    if acao == "slash":
+        from .slash import executar_slash
+        nome = str(cmd.get("nome") or "")
+        texto = executar_slash(nome, str(cmd.get("arg") or ""))
+        return json.dumps({"cmd": "slash", "nome": nome, "texto": texto},
+                          ensure_ascii=False)
     if acao == "historico":
         limite = int(cmd.get("limit", _LIMITE_HISTORICO))
         threads = asyncio.run(listar_historico(app or montar_app(), limite))
@@ -343,8 +390,9 @@ async def _rodar_job(app: Any, cmd: dict) -> None:
     job_id = str(cmd.get("job_id") or "j-0")
     texto = str(cmd.get("texto") or "")
     thread_id = str(cmd.get("thread_id") or config.thread_id)
+    dominio = str(cmd.get("dominio") or "")
     try:
-        async for f in executar_job(app, texto, thread_id, job_id):
+        async for f in executar_job(app, texto, thread_id, job_id, dominio=dominio):
             print(json.dumps(f, ensure_ascii=False), flush=True)
     except asyncio.CancelledError:
         print(json.dumps({
@@ -405,6 +453,15 @@ async def _main_loop() -> None:
             print('{"cmd": "pong"}', flush=True)
         elif acao == "estado":
             print(json.dumps({"cmd": "estado", "dados": snapshot_estado()},
+                             ensure_ascii=False), flush=True)
+        elif acao == "sugestoes":
+            print(json.dumps({"cmd": "sugestoes", "dados": snapshot_sugestoes()},
+                             ensure_ascii=False), flush=True)
+        elif acao == "slash":
+            from .slash import executar_slash
+            nome = str(cmd.get("nome") or "")
+            print(json.dumps({"cmd": "slash", "nome": nome,
+                              "texto": executar_slash(nome, str(cmd.get("arg") or ""))},
                              ensure_ascii=False), flush=True)
         elif acao == "historico":
             limite = int(cmd.get("limit", _LIMITE_HISTORICO))

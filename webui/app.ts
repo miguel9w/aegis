@@ -180,6 +180,179 @@ async function responderPermitir() {
   }
 }
 
+// ------------------------------------------------------------------- comandos do input
+// `/comando` → sugestões do slash da TUI · `@agente` → personas/multiagente/APF
+// · `-/arquivo` → anexa um arquivo do projeto (lido e enviado no turno).
+// Tab completa a sugestão destacada (ou a primeira); ↑/↓ navegam; Esc fecha.
+
+interface Sugestao {
+  rotulo: string;
+  descricao: string;
+  grupo: "comandos" | "agentes" | "prompts" | "papeis" | "arquivos";
+}
+
+interface Catalogo {
+  comandos: Array<{ nome: string; descricao: string }>;
+  agentes: Array<{ nome: string; descricao: string }>;
+  prompts: Array<{ id: string; versao?: string; descricao?: string }>;
+  papeis: Array<{ nome: string; descricao?: string }>;
+}
+
+const CATALOGO_FALLBACK: Catalogo = {
+  comandos: [
+    { nome: "ajuda", descricao: "lista de comandos" },
+    { nome: "status", descricao: "estado do Aegis (modelo, memória, multiagente)" },
+    { nome: "prompt", descricao: "[id|nenhum] — ativa/mostra o prompt avançado (APF)" },
+    { nome: "prompts", descricao: "lista os APFs disponíveis" },
+    { nome: "papeis", descricao: "lista os papéis (CAMEL)" },
+    { nome: "definir_papel", descricao: "[nome] — define o papel ativo" },
+    { nome: "limpar", descricao: "limpa o chat local" },
+    { nome: "novo", descricao: "nova thread" },
+  ],
+  agentes: [
+    { nome: "programacao", descricao: "subgrafo multiagente — código/dev" },
+    { nome: "pesquisa", descricao: "subgrafo multiagente — papers/web" },
+    { nome: "escrita", descricao: "subgrafo multiagente — textos" },
+    { nome: "obsidian", descricao: "subgrafo multiagente — notas MyLife" },
+    { nome: "memoria", descricao: "subgrafo multiagente — memória" },
+  ],
+  prompts: [],
+  papeis: [],
+};
+
+let catalogo: Catalogo = CATALOGO_FALLBACK;
+const anexos = new Map<string, string>(); // caminho → rótulo do chip
+let sugestoes: Sugestao[] = [];
+let sugestaoSel = 0;
+let seqArquivos = 0;
+let consultaArquivos = "";
+
+const sugestoesEl = byId<HTMLDivElement>("sugestoes");
+const anexosEl = byId<HTMLDivElement>("anexos");
+
+function tokenAtual(): { inicio: number; fim: number; token: string } {
+  const v = inputEl.value;
+  const cursor = inputEl.selectionStart >= 0 ? inputEl.selectionStart : v.length;
+  const ateEspaco = v.lastIndexOf(" ", cursor - 1);
+  const inicio = ateEspaco + 1;
+  const m = v.slice(inicio).match(/^\S+/);
+  const largura = m ? m[0].length : 0;
+  return { inicio, fim: inicio + largura, token: v.slice(inicio, inicio + largura) };
+}
+
+function fecharSugestoes() {
+  sugestoes = [];
+  sugestaoSel = 0;
+  sugestoesEl.classList.add("oculto");
+  sugestoesEl.innerHTML = "";
+}
+
+function renderizarSugestoes() {
+  if (!sugestoes.length) { fecharSugestoes(); return; }
+  sugestoesEl.innerHTML = "";
+  let grupoAtual = "";
+  sugestoes.forEach((s, i) => {
+    if (s.grupo !== grupoAtual) {
+      grupoAtual = s.grupo;
+      const g = document.createElement("div");
+      g.className = "sug-grupo";
+      g.textContent = grupoAtual;
+      sugestoesEl.appendChild(g);
+    }
+    const d = document.createElement("div");
+    d.className = `sug-item${i === sugestaoSel ? " selecionada" : ""}`;
+    d.innerHTML = `<span class="sug-rotulo">${escapeHtml(s.rotulo)}</span>${s.descricao ? `<span class="sug-desc">${escapeHtml(s.descricao)}</span>` : ""}`;
+    d.addEventListener("mousedown", (ev) => { ev.preventDefault(); completarSugestao(i); });
+    sugestoesEl.appendChild(d);
+  });
+  sugestoesEl.classList.remove("oculto");
+}
+
+function completarSugestao(i?: number) {
+  const s = sugestoes[i ?? sugestaoSel] ?? sugestoes[0];
+  if (!s) return;
+  const { inicio, fim } = tokenAtual();
+  if (s.grupo === "arquivos") {
+    // vira chip de anexo (o conteúdo é lido só no envio)
+    inputEl.value = inputEl.value.slice(0, inicio) + inputEl.value.slice(fim);
+    anexos.set(s.rotulo, s.rotulo);
+    renderizarAnexos();
+  } else {
+    inputEl.value = inputEl.value.slice(0, inicio) + s.rotulo + " " + inputEl.value.slice(fim);
+    inputEl.selectionStart = inputEl.selectionEnd = inicio + s.rotulo.length + 1;
+  }
+  fecharSugestoes();
+  inputEl.focus();
+  atualizarSugestoes();
+  inputEl.dispatchEvent(new Event("input", { bubbles: true })); // recalcula autosize
+}
+
+function renderizarAnexos() {
+  anexosEl.innerHTML = "";
+  for (const caminho of anexos.keys()) {
+    const chip = document.createElement("span");
+    chip.className = "chip-anexo";
+    chip.innerHTML = `📎 <span>${escapeHtml(caminho)}</span> <button title="remover anexo">✕</button>`;
+    chip.querySelector("button")!.addEventListener("click", () => {
+      anexos.delete(caminho);
+      renderizarAnexos();
+    });
+    anexosEl.appendChild(chip);
+  }
+}
+
+function atualizarSugestoes() {
+  const { token } = tokenAtual();
+  if (token.startsWith("-/")) {
+    // arquivos do projeto — consulta assíncrona (uma por termo)
+    const q = token.slice(2);
+    if (q !== consultaArquivos || sugestoes.length === 0) {
+      consultaArquivos = q;
+      const meuSeq = ++seqArquivos;
+      fetch(`/api/arquivos?q=${encodeURIComponent(q)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null)
+        .then((dados) => {
+          if (meuSeq !== seqArquivos) return;
+          const nomes: string[] = (dados?.arquivos ?? []).slice(0, 40);
+          sugestoes = nomes.map((n) => ({ rotulo: n, descricao: "", grupo: "arquivos" }));
+          sugestaoSel = 0;
+          renderizarSugestoes();
+        });
+    }
+    return;
+  }
+  seqArquivos++; // invalida consultas de arquivo pendentes
+  const resto = token.slice(1).toLowerCase();
+  let lista: Sugestao[] = [];
+  if (token.startsWith("/")) {
+    lista = catalogo.comandos
+      .filter((c) => c.nome.startsWith(resto))
+      .slice(0, 30)
+      .map((c) => ({ rotulo: `/${c.nome}`, descricao: c.descricao, grupo: "comandos" }));
+  } else if (token.startsWith("@")) {
+    const a = catalogo.agentes.filter((x) => x.nome.startsWith(resto))
+      .map((x) => ({ rotulo: `@${x.nome}`, descricao: x.descricao, grupo: "agentes" }));
+    const p = catalogo.prompts.filter((x) => x.id.startsWith(resto))
+      .map((x) => ({ rotulo: `@${x.id}`, descricao: `APF v${x.versao ?? "?"}${x.descricao ? ` — ${x.descricao}` : ""}`, grupo: "prompts" }));
+    const pa = catalogo.papeis.filter((x) => x.nome.startsWith(resto))
+      .map((x) => ({ rotulo: `@${x.nome}`, descricao: `papel${x.descricao ? ` — ${x.descricao}` : ""}`, grupo: "papeis" }));
+    lista = [...a, ...p, ...pa].slice(0, 40);
+  }
+  sugestoes = lista;
+  sugestaoSel = 0;
+  renderizarSugestoes();
+}
+
+async function carregarCatalogo() {
+  try {
+    const res = await fetch("/api/sugestoes");
+    if (!res.ok) return;
+    const dados = (await res.json()) as Catalogo;
+    if (Array.isArray(dados.comandos) && Array.isArray(dados.agentes)) catalogo = dados;
+  } catch { /* catálogo local permanece */ }
+}
+
 // ------------------------------------------------------------------- feed
 function itemFeed(icone: string, titulo: string, corpo?: string, classe = "") {
   const d = document.createElement("div");
@@ -370,9 +543,61 @@ function aoFrame(f: Frame) {
 
 // ------------------------------------------------------------------- turno
 async function iniciarTurno(textoForcado?: string) {
-  const texto = (textoForcado ?? inputEl.value).trim();
+  fecharSugestoes();
+  let texto = (textoForcado ?? inputEl.value).trim();
   if (!texto || estado.jobAtivo) return;
   inputEl.value = "";
+
+  // `@agente` no primeiro token: força o subgrafo (dominio) ou ativa APF/papel
+  let dominio = "";
+  const mInicio = texto.match(/^@([-\w]+)/);
+  if (mInicio) {
+    const alvo = mInicio[1];
+    if (catalogo.agentes.some((x) => x.nome === alvo)) {
+      dominio = alvo;
+      texto = texto.slice(mInicio[0].length).trim();
+    } else {
+      const apf = catalogo.prompts.find((x) => x.id === alvo);
+      const papel = catalogo.papeis.find((x) => x.nome === alvo);
+      if (apf || papel) {
+        const resp = await fetch("/api/slash", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            nome: apf ? "prompt" : "definir_papel",
+            arg: apf ? apf.id : (papel?.nome ?? ""),
+          }),
+        }).catch(() => null);
+        const corpo = resp?.ok ? await resp.json() : null;
+        itemFeed(
+          apf ? "📌" : "👤",
+          apf ? `APF ativado: @${apf.id}` : `papel definido: @${papel?.nome}`,
+          corpo?.texto ?? "sem resposta da ponte",
+        );
+        texto = texto.slice(mInicio[0].length).trim();
+      }
+    }
+  }
+
+  // anexos `-/arquivo`: lidos agora e embutidos na mensagem do turno
+  if (anexos.size) {
+    const blocos: string[] = [];
+    for (const caminho of anexos.keys()) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await fetch(`/api/arquivo?caminho=${encodeURIComponent(caminho)}`).catch(() => null);
+      if (!res?.ok) {
+        itemFeed("❌", "anexo falhou", `${caminho} não pôde ser lido — remova o chip e tente de novo`);
+        inputEl.value = texto;
+        return;
+      }
+      const dados = (await res.json()) as { conteudo: string };
+      blocos.push(`📎 anexo: ${caminho}\n\`\`\`text\n${dados.conteudo}\n\`\`\``);
+    }
+    anexos.clear();
+    renderizarAnexos();
+    texto = `${blocos.join("\n\n")}\n\n${texto}`;
+  }
+
   adicionarUsuario(texto);
   abrirTurnoAegis();
   estado.jobAtivo = true;
@@ -387,7 +612,9 @@ async function iniciarTurno(textoForcado?: string) {
     const res = await fetch("/api/mensagem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ texto, thread_id: estado.threadId }),
+      body: JSON.stringify({
+        texto, thread_id: estado.threadId, ...(dominio ? { dominio } : {}),
+      }),
     });
     const { job_id: jobId } = (await res.json()) as { job_id?: string };
     if (!jobId) throw new Error("sem job_id");
@@ -467,13 +694,25 @@ function iniciarWidgets() {
 function iniciar() {
   tabBotoes.forEach((b) => b.addEventListener("click", () => ativarAba(b.dataset.aba!)));
   enviarBtn.addEventListener("click", () => iniciarTurno());
+  inputEl.addEventListener("input", () => atualizarSugestoes());
   inputEl.addEventListener("keydown", (e) => {
+    const aberto = sugestoes.length > 0;
+    if (aberto && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      sugestaoSel = (sugestaoSel + (e.key === "ArrowDown" ? 1 : -1) + sugestoes.length) % sugestoes.length;
+      renderizarSugestoes();
+      return;
+    }
+    if (aberto && e.key === "Tab") { e.preventDefault(); completarSugestao(); return; }
+    if (aberto && e.key === "Escape") { fecharSugestoes(); return; }
+    if (aberto && e.key === "Enter") { e.preventDefault(); completarSugestao(); return; }
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); iniciarTurno(); }
   });
   interromperBtn.addEventListener("click", interromper);
   modalPermitirBtn.addEventListener("click", responderPermitir);
   modalRecusarBtn.addEventListener("click", fecharModalPergunta);
   threadBadgeEl.textContent = `thread: ${estado.threadId}`;
+  void carregarCatalogo();
   ativarAba("metricas");
   carregarConfig();
   carregarHistorico();

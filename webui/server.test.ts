@@ -118,6 +118,64 @@ describe("W4 — fila de jobs e SSE", () => {
   });
 });
 
+describe("W7 — comandos melhorados (sugestões, slash, arquivos)", () => {
+  test("GET /api/sugestoes lista comandos e agentes via ponte", async () => {
+    const res = await fetch(`${base}/api/sugestoes`);
+    expect(res.status).toBe(200);
+    const corpo = (await res.json()) as {
+      comandos: Array<{ nome: string }>;
+      agentes: Array<{ nome: string }>;
+    };
+    expect(corpo.comandos.some((c) => c.nome === "ajuda")).toBe(true);
+    expect(corpo.agentes.some((a) => a.nome === "programacao")).toBe(true);
+  });
+
+  test("POST /api/slash executa comando na ponte (fake)", async () => {
+    const res = await fetch(`${base}/api/slash`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nome: "status", arg: "" }),
+    });
+    expect(res.status).toBe(200);
+    const corpo = (await res.json()) as { texto: string };
+    expect(corpo.texto).toContain("slash fake");
+  });
+
+  test("POST /api/slash sem nome → 400", async () => {
+    const res = await fetch(`${base}/api/slash`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test("GET /api/arquivos lista caminhos de texto do projeto", async () => {
+    const res = await fetch(`${base}/api/arquivos`);
+    expect(res.status).toBe(200);
+    const corpo = (await res.json()) as { arquivos: string[] };
+    // o próprio repo tem TS/PY/MD listáveis (e NADA de node_modules/.env)
+    expect(corpo.arquivos.some((a) => a.endsWith("server.ts"))).toBe(true);
+    expect(corpo.arquivos.some((a) => a.includes("node_modules"))).toBe(false);
+    // nenhum `.env` real (o `.env.example` é permitido na listagem)
+    expect(corpo.arquivos.some((a) => /(^|\/)\.env$/.test(a))).toBe(false);
+  });
+
+  test("GET /api/arquivo lê texto do projeto e bloqueia traversal", async () => {
+    const ok = await fetch(`${base}/api/arquivo?caminho=${encodeURIComponent("webui/server.ts")}`);
+    expect(ok.status).toBe(200);
+    const corpo = (await ok.json()) as { caminho: string; conteudo: string };
+    expect(corpo.conteudo).toContain("criarServidor");
+
+    const fora = await fetch(`${base}/api/arquivo?caminho=${encodeURIComponent("../README.md")}`);
+    expect(fora.status).toBe(404);
+
+    const binario = await fetch(`${base}/api/arquivo?caminho=${encodeURIComponent("webui/node_modules/katex/package.json")}`);
+    // existe, mas node_modules não é texto listável — 404 pelo ext/limite é aceitável
+    expect(binario.status).toBe(404);
+  });
+});
+
 describe("W5b — interromper e autorizar", () => {
   test("interromper job inexistente → 404", async () => {
     const res = await fetch(`${base}/api/interromper`, {

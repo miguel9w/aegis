@@ -328,6 +328,17 @@ webui-test   = "bun test ./webui/*.test.ts"
    Auditoria (orquestracoes.jsonl + threads), Config redigida, WS `/api/hub`,
    rate limit, `webui-build` produção, README + `pixi run help` (linha webui),
    highlight de sintaxe (bônus). Commit.
+7. **W7 · Comandos melhorados no input** — `/` com sugestões do slash real da
+   TUI + autocomplete por Tab (↑/↓, Enter/Esc); `@` com agentes (domínios do
+   multiagente → `dominio` metadado que **força o subgrafo** no orquestrador),
+   APFs (`/prompt <id>`) e papéis (`definir_papel`) via novo comando `slash` da
+   ponte; `-/arquivo` com busca no projeto (rota `/api/arquivos` — só texto,
+   sem node_modules/.git/.pixi/.env e sem traversal) + chip de anexo que
+   embute o conteúdo lido (`/api/arquivo`, máx. 40 KB) na mensagem. Catálogo
+   exposto em `/api/sugestoes` (uma única fonte: `slash.IMPLEMENTADOS` +
+   `DOMINIOS` + APFs + papéis). Prova browser: `@programacao` → feed
+   `⏳ sub_programacao iniciou`; `-/server` → chip + `📎 anexo` no turno.
+   Commit.
 
 ## 13. Riscos e limites
 

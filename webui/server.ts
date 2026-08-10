@@ -7,6 +7,8 @@
  * proxy derruba o stream). server.timeout(req, 0) desliga o idle do Bun.
  */
 import { build } from "bun";
+import { readdirSync, readFileSync } from "node:fs";
+import { extname, join, resolve } from "node:path";
 import { Ponte, type Frame } from "./bridge.ts";
 
 export interface JobSSE {
@@ -31,9 +33,78 @@ const SSE_HEADERS = {
   "X-Accel-Buffering": "no",
 };
 
+// ---------------- arquivos do projeto (input `-/arquivo`) ----------------
+// Listagem/leitura para o front carregar um arquivo no chat. A raiz do
+// projeto é o pai de webui/; nada fora dela nem diretórios de máquina
+// (node_modules/.git/.pixi) — e .env — aparecem. Leitura apenas: a escrita
+// do agente continua restrita ao sandbox (config.artefatos_dir).
+
+const IGNORAR_DIRS = new Set([
+  "node_modules", ".git", ".pixi", "dist", ".hermes", "target",
+  "__pycache__", ".venv", "config/dados/artefatos",
+]);
+const EXT_TEXTO = new Set([
+  ".ts", ".tsx", ".js", ".mjs", ".json", ".md", ".txt", ".py", ".toml",
+  ".yaml", ".yml", ".html", ".css", ".ron", ".sh", ".rs", ".sql", ".csv",
+  ".apf", ".xml",
+]);
+const MAX_ARQUIVO_CHARS = 40_000;
+
+function listarArquivosTexto(base: string, consulta: string, max = 400): string[] {
+  const baseNorm = base.endsWith("/") ? base : `${base}/`;
+  const saida: string[] = [];
+  const fila = [baseNorm];
+  while (fila.length && saida.length < max) {
+    const pasta = fila.pop()!;
+    let entradas: string[];
+    try {
+      entradas = readdirSync(pasta, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entrada of entradas) {
+      if (entrada.name.startsWith(".") && entrada.name !== ".env.example") continue;
+      if (IGNORAR_DIRS.has(entrada.name)) continue;
+      const caminho = join(pasta, entrada.name);
+      if (entrada.isDirectory()) {
+        fila.push(caminho);
+      } else if (EXT_TEXTO.has(extname(entrada.name))) {
+        const rel = caminho.slice(baseNorm.length);
+        if (!consulta || rel.toLowerCase().includes(consulta)) saida.push(rel);
+      }
+    }
+  }
+  return saida.sort();
+}
+
+function lerArquivoTexto(
+  base: string,
+  relativo: string,
+): { caminho: string; conteudo: string; tamanho: number; truncado: boolean } | null {
+  if (!relativo || relativo.includes("\0")) return null;
+  if (relativo.split("/").some((parte) => IGNORAR_DIRS.has(parte))) return null;
+  const baseNorm = base.endsWith("/") ? base : `${base}/`;
+  const alvo = resolve(base, relativo);
+  if (!alvo.startsWith(baseNorm)) return null; // traversal fora da raiz
+  if (!EXT_TEXTO.has(extname(alvo))) return null;
+  try {
+    const dados = readFileSync(alvo, "utf-8");
+    const truncado = dados.length > MAX_ARQUIVO_CHARS;
+    return {
+      caminho: relativo,
+      conteudo: truncado ? `${dados.slice(0, MAX_ARQUIVO_CHARS)}\n… (${dados.length} caracteres, truncado)` : dados,
+      tamanho: dados.length,
+      truncado,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function criarServidor(opcoes: OpcoesServidor = {}) {
   const ponte = opcoes.ponte ?? new Ponte();
   const dir = new URL(".", import.meta.url).pathname;
+  const raizProjeto = new URL("../", import.meta.url).pathname;
   const intervaloPing = opcoes.intervaloPingMs ?? 15_000;
   const timeoutComando = opcoes.timeoutComandoMs ?? 4_000;
   const jobs = new Map<string, JobSSE>();
@@ -153,6 +224,45 @@ export function criarServidor(opcoes: OpcoesServidor = {}) {
         return Response.json(dados ?? { erro: "ponte sem resposta" });
       }
 
+      // sugestões do input (comandos `/`, agentes `@`) — vem da ponte real
+      if (caminho === "/api/sugestoes") {
+        const resp = await ponte.comandar({ cmd: "sugestoes" }, timeoutComando);
+        return Response.json(
+          resp?.dados ?? { comandos: [], agentes: [], prompts: [], papeis: [] },
+        );
+      }
+
+      if (caminho === "/api/slash" && req.method === "POST") {
+        const corpo = await req.json().catch(() => null);
+        const nome = typeof corpo?.nome === "string" ? corpo.nome.trim() : "";
+        if (!nome) {
+          return Response.json({ erro: "campo 'nome' obrigatório" }, { status: 400 });
+        }
+        const resp = await ponte.comandar(
+          { cmd: "slash", nome, arg: String(corpo?.arg ?? "") },
+          timeoutComando,
+        );
+        return Response.json({ texto: resp?.texto ?? "sem resposta da ponte" });
+      }
+
+      // arquivos do projeto (input `-/arquivo`): lista + leitura de texto
+      if (caminho === "/api/arquivos") {
+        const consulta = (url.searchParams.get("q") ?? "").toLowerCase();
+        return Response.json({ arquivos: listarArquivosTexto(raizProjeto, consulta) });
+      }
+
+      if (caminho === "/api/arquivo") {
+        const relativo = url.searchParams.get("caminho") ?? "";
+        const arquivo = lerArquivoTexto(raizProjeto, relativo);
+        if (!arquivo) {
+          return Response.json(
+            { erro: "arquivo não encontrado, fora do projeto ou não é texto" },
+            { status: 404 },
+          );
+        }
+        return Response.json(arquivo);
+      }
+
       if (caminho === "/api/mensagem" && req.method === "POST") {
         const corpo = await req.json().catch(() => null);
         const texto = typeof corpo?.texto === "string" ? corpo.texto.trim() : "";
@@ -161,8 +271,12 @@ export function criarServidor(opcoes: OpcoesServidor = {}) {
         }
         const jobId = `j-${crypto.randomUUID().slice(0, 8)}`;
         const threadId = typeof corpo?.thread_id === "string" ? corpo.thread_id : "default";
+        const dominio = typeof corpo?.dominio === "string" ? corpo.dominio.trim() : "";
         jobs.set(jobId, { frames: [], escritores: [], fechado: false });
-        ponte.enviar({ cmd: "mensagem", job_id: jobId, texto, thread_id: threadId });
+        ponte.enviar({
+          cmd: "mensagem", job_id: jobId, texto, thread_id: threadId,
+          ...(dominio ? { dominio } : {}),
+        });
         return Response.json({ job_id: jobId, thread_id: threadId }, { status: 202 });
       }
 
