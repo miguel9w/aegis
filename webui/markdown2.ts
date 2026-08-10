@@ -8,9 +8,17 @@
  */
 import { renderMarkdown } from "./markdown.ts";
 
-const katex = await import("katex");
-
 const MERMAID = /```mermaid\s*\n([\s\S]*?)```/g;
+
+/**
+ * KaTeX é carregado como vendor global (`/vendor/katex.min.js`, script tag no
+ * index.html) — o bundle fica enxuto e a dep é cacheada como imutável. Para
+ * testes (bun/node) o resolver é injetável via `definirKatex`.
+ */
+let obterKatex: () => any = () => (globalThis as any).katex;
+export function definirKatex(fn: () => any): void {
+  obterKatex = fn;
+}
 
 function escapeHtml(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -50,6 +58,8 @@ function renderizarLinks(texto: string, slots: string[]): string {
 
 /** Compila `$..$`, `$$..$$` e `\(..\)` com KaTeX; sem mudança em falha. */
 function renderizarMath(texto: string, slots: string[]): string {
+  const katex = obterKatex();
+  if (!katex) return texto; // vendor ainda não carregou: mantém o texto cru
   texto = texto.replace(/\$\$([\s\S]+?)\$\$/g, (_t, expr: string) => {
     try {
       return slot(katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false }), slots);
@@ -94,12 +104,23 @@ export function renderarMarkdownAvancado(texto: string): string {
   return html;
 }
 
+/** Carrega um script vendor sob demanda (mermaid é ~3 MB — só quando há diagrama). */
+function carregarScript(src: string): Promise<void> {
+  return new Promise((resolve, rejeita) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => rejeita(new Error(`vendor não carregou: ${src}`));
+    document.head.appendChild(s);
+  });
+}
+
 /** Renderiza os diagramas mermaid já presentes no container (browser). */
 export async function executarMermaid(container: HTMLElement): Promise<void> {
   const alvos = container.querySelectorAll(".mermaid");
   if (!alvos.length) return;
   try {
-    const mermaid = (await import("mermaid")).default;
+    const mermaid = (globalThis as any).mermaid ?? ((await carregarScript("/vendor/mermaid.min.js")), (globalThis as any).mermaid);
     mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
     await mermaid.run({ nodes: alvos as unknown as Array<Element> });
   } catch {

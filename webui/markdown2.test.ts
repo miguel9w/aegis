@@ -4,7 +4,11 @@
  * aqui é só a EXTRAÇÃO do bloco; o render real é browser (`executarMermaid`).
  */
 import { describe, expect, test } from "bun:test";
-import { renderarMarkdownAvancado } from "./markdown2.ts";
+import katex from "katex";
+import { definirKatex, renderarMarkdownAvancado } from "./markdown2.ts";
+
+// no browser o katex é vendor global (window.katex); nos testes injeta o real
+definirKatex(() => katex);
 
 describe("W5e — markdown avançado", () => {
   test("latex inline $..$ vira KaTeX", () => {

@@ -258,6 +258,10 @@ pixi run webui        # sobe o servidor em http://localhost:8788
 pixi run webui-test   # testes do front (bun test: server, ponte fake, markdown avançado)
 ```
 
+> Deps do front: `bun install` (em `webui/`) uma vez — katex e mermaid são servidos
+> como **vendor estáticos** (`/vendor/*`, cache imutável) e o bundle do app fica
+> ~15 KB minificado; o mermaid (~3 MB) só carrega quando há diagrama no turno.
+
 - **Botão ⏹ interromper** — cancela o turno em execução na ponte (task cancelável; o stream fecha com `interrompido: true`, nunca erro).
 - **Janela de perguntas** — comandos fora da allowlist e marcáveis para confirmação (`confirmar: true`) abrem um card `❓ responder`; aprovar/recusar via `POST /api/autorizar`. Comandos destrutivos da denylist **sempre** recusados (motivo `politica`).
 - **Markdown avançado no chat** — KaTeX (`$..$`), diagramas mermaid (```` ```mermaid ````), tabelas e links — camada `webui/markdown2.ts` sobre o renderizador leve escape-first (o código nunca executa HTML bruto).

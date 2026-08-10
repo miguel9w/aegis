@@ -50,7 +50,7 @@ export function criarServidor(opcoes: OpcoesServidor = {}) {
     } catch { /* dist ausente → build */ }
     const r = await build({
       entrypoints: [entrada], outdir: `${dir}public/dist`,
-      minify: false, sourcemap: "inline",
+      minify: true, sourcemap: "none",
     });
     if (!r.outputs.length) throw new Error("bun build falhou sem outputs");
   }
@@ -94,6 +94,27 @@ export function criarServidor(opcoes: OpcoesServidor = {}) {
         return new Response(html, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
+      }
+
+      // vendor (deps do node_modules: katex, mermaid) — imutável, cache longo
+      if (caminho.startsWith("/vendor/")) {
+        const resto = caminho.slice("/vendor/".length);
+        // aliases das deps + fontes do katex (o CSS usa url(fonts/…) relativo)
+        const relativo = resto === "katex.min.js" ? "katex/dist/katex.min.js"
+          : resto === "katex.min.css" ? "katex/dist/katex.min.css"
+          : resto === "mermaid.min.js" ? "mermaid/dist/mermaid.min.js"
+          : resto.startsWith("fonts/") ? `katex/dist/${resto}` : "";
+        if (relativo) {
+          const arquivo = Bun.file(`${dir}node_modules/${relativo}`);
+          if (await arquivo.exists()) {
+            const tipo = arquivo.name!.endsWith(".js") ? "application/javascript"
+              : arquivo.name!.endsWith(".css") ? "text/css"
+              : arquivo.name!.endsWith(".woff2") ? "font/woff2" : "application/octet-stream";
+            return new Response(arquivo, {
+              headers: { "Content-Type": tipo, "Cache-Control": "public, max-age=31536000, immutable" },
+            });
+          }
+        }
       }
 
       // estáticos do front (dist foi gerado por bun build no dev/boot)

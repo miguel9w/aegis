@@ -31,6 +31,31 @@ describe("W1 — estático e saúde", () => {
     expect(await res.text()).toContain("<title>Aegis Web UI</title>");
   });
 
+  test("vendor do node_modules (katex/mermaid) com cache imutável", async () => {
+    const js = await fetch(`${base}/vendor/katex.min.js`);
+    expect(js.status).toBe(200);
+    expect(js.headers.get("content-type")).toContain("javascript");
+    expect(js.headers.get("cache-control")).toContain("immutable");
+
+    const css = await fetch(`${base}/vendor/katex.min.css`);
+    expect(css.status).toBe(200);
+    expect(css.headers.get("content-type")).toContain("text/css");
+
+    const inexistente = await fetch(`${base}/vendor/nada.js`);
+    expect(inexistente.status).toBe(404);
+  });
+
+  test("vendor fora da lista cai no 404 genérico", async () => {
+    const res = await fetch(`${base}/vendor/../server.ts`);
+    expect(res.status).toBe(404);
+  });
+
+  test("app.js do dist é servido com no-store (sem cache velho no dev)", async () => {
+    const res = await fetch(`${base}/app.js`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("no-store");
+  });
+
   test("GET /api/healthz responde com ponte ok", async () => {
     const res = await fetch(`${base}/api/healthz`);
     expect(res.status).toBe(200);
