@@ -24,7 +24,8 @@
 | **C1 — Reflexão pós-turno** | ✅ concluída | `no_reflexao_pos_turno` + recall IDF; 3 liçons extraídas em turno real com erro (1 alta) e re-injetadas no system; 288 pytest + 25 bun verdes |
 | **C2 — Plan-and-execute** | ✅ concluída | `no_planejamento`/`no_replanejamento` + heurística zero-LLM + bloco de plano no system; prova real: plano de 4 passos gerado e executado; 294 pytest + 25 bun verdes |
 | **C3 — Verify-then-answer** | ✅ concluída | `no_verificar` + rota divergência→correção (máx 1×, sem loop); prova real: evidência "saída do comando" conferida; 298 pytest + 25 bun verdes |
-| **C4 — Memória estrutural** | ✅ concluída | `no_memoria_estrutural` (resumo incremental + decisões por thread) + recall hierárquico perfil→lições→resumo→decisões + tool `recuperar_contexto`; fix raiz de flaky: conexões sqlite SEPARADAS p/ saver e store; 302 pytest + 25 bun verdes (2 rodadas estáveis) |
+| **C4 — Memória estrutural** | ✅ concluída | resumo incremental + decisões por thread + recall hierárquico + tool `recuperar_contexto`; fix raiz do flaky: conexões sqlite separadas saver/store; 302 pytest + 25 bun verdes |
+| **G1 — Modo entrega (ciclo GSD)** | ✅ concluída | ciclo discuss→plan→execute→verify→ship (classificador zero-LLM); discussão com perguntas via interrupt; waves auditadas com commits; verify goal-backward com correção (anti-loop); prova real: ship 3/3 critérios; 306 pytest + 25 bun verdes |
 
 ---
 

@@ -687,3 +687,124 @@ def test_recuperar_contexto_tool_registrada():
     from aegis.ferramentas import carregar_ferramentas
     nomes = {f.name for f in carregar_ferramentas()}
     assert "recuperar_contexto" in nomes
+
+
+# ---------------------------------------------------------------------
+# G1 — Modo entrega: ciclo discuss → plan → execute → verify → ship
+# ---------------------------------------------------------------------
+
+def _resposta_verify_entrega(vereditos: list[dict]) -> AIMessage:
+    import json
+    return AIMessage(content=json.dumps({"criterios": vereditos}, ensure_ascii=False))
+
+
+def test_entrega_ciclo_completo_ordem_fases(tmp_path):
+    """Pedido de entrega → fases na ordem discuss→plan→execute→verify→ship
+    (invariante de ordem), com wave registrada e ship só com tudo verificado."""
+    modelo = ModeloFake()
+    modelo.configurar([
+        _resposta_plano([{"passo": "criar tool somador", "objetivo": "entrega",
+                          "status": "pendente"}]),
+        chamada_tool("calculadora", {"expressao": "1 + 1"}, id_chamada="call_g"),
+        AIMessage(content="Tool somador criada e testada."),
+        _resposta_verify_entrega([{"indice": 0, "verificado": True,
+                                   "evidencia": "tool existe e roda"}]),
+        _resposta_licoes([]),
+    ])
+    app, cfg = _app(tmp_path, modelo)
+    resultado = app.invoke(
+        {"mensagens": [HumanMessage("adicione a ferramenta somador com testes e push")],
+         "metadados_sessao": {"thread_id": cfg.thread_id}},
+        config={"configurable": {"thread_id": cfg.thread_id}},
+    )
+    ft = resultado["fluxo_trabalho"]
+    assert ft is not None and ft["fase"] == "ship", f"fase final: {ft}"
+    assert ft["ship"]["criterios_verificados"] == 1
+    # ordem das fases observável nos registros (fase anexada em cada execução)
+    fases_vistas = [r.get("fase") for r in resultado["registros_ferramentas"] if r.get("fase")]
+    assert fases_vistas, "registros sem fase (auditoria G1)"
+    assert "execute" in fases_vistas
+    assert resultado["commits_entrega"], "wave sem commit registrado"
+    # mensagem final tem o selo de ship
+    assert "🛳️" in resultado["mensagens"][-1].content
+
+
+def test_tarefa_informativa_fluxo_legado_byte_identico(tmp_path):
+    """Tarefa informativa → fluxo legado: fluxo_trabalho ausente, UMA chamada
+    ao LLM, resposta byte-idêntica à do fluxo sem classificador."""
+    modelo = ModeloEspiao(saida="Um agente é um sistema que decide o próximo passo.")
+    app, cfg = _app(tmp_path, modelo)
+    resultado = app.invoke(
+        {"mensagens": [HumanMessage("explique o que é um agente")],
+         "metadados_sessao": {"thread_id": cfg.thread_id}},
+        config={"configurable": {"thread_id": cfg.thread_id}},
+    )
+    assert resultado["fluxo_trabalho"] is None
+    assert len(modelo.chamadas) == 1, "ciclo GSD não deve rodar para pergunta informativa"
+    assert resultado["mensagens"][-1].content == "Um agente é um sistema que decide o próximo passo."
+
+
+def test_verify_reprovado_volta_execute_sem_ship(tmp_path):
+    """verify reprova critério → volta a execute (feedback no histórico),
+    NÃO ship; correção final → verify ok → ship."""
+    modelo = ModeloFake()
+    modelo.configurar([
+        _resposta_plano([{"passo": "criar tool", "objetivo": "entrega",
+                          "status": "pendente"}]),
+        chamada_tool("calculadora", {"expressao": "2 + 2"}, id_chamada="call_r"),
+        AIMessage(content="Tool criada."),
+        _resposta_verify_entrega([{"indice": 0, "verificado": False,
+                                   "evidencia": "teste ausente"}]),
+        AIMessage(content="Tool criada com teste."),
+        _resposta_verify_entrega([{"indice": 0, "verificado": True,
+                                   "evidencia": "teste presente"}]),
+        _resposta_licoes([]),
+    ])
+    app, cfg = _app(tmp_path, modelo)
+    resultado = app.invoke(
+        {"mensagens": [HumanMessage("adicione a rotina de backup com teste e push")],
+         "metadados_sessao": {"thread_id": cfg.thread_id}},
+        config={"configurable": {"thread_id": cfg.thread_id}},
+    )
+    ft = resultado["fluxo_trabalho"]
+    assert ft["fase"] == "ship"
+    assert ft["ship"]["criterios_verificados"] == 1
+    # o feedback da verificação entrou no histórico (prova de que voltou a execute)
+    textos = [str(m.content) for m in resultado["mensagens"]]
+    assert any("[verificação da entrega]" in t for t in textos), "sem feedback no histórico"
+    # ship só registra quando a verificação passou: ship montado no fim
+    assert ft["ship"]["total_criterios"] == 1
+
+
+def test_discuss_vago_pausa_com_pergunta_e_resume(tmp_path):
+    """Pedido de entrega vago → no_discuss PAUSA com pergunta (interrupt);
+    resposta do usuário (Command resume) → ciclo completa até ship."""
+    from langgraph.types import Command
+    modelo = ModeloFake()
+    modelo.configurar([
+        _resposta_plano([{"passo": "implementar buscar", "objetivo": "entrega",
+                          "status": "pendente"}]),
+        chamada_tool("calculadora", {"expressao": "3 + 3"}, id_chamada="call_d"),
+        AIMessage(content="Ferramenta buscar implementada."),
+        _resposta_verify_entrega([{"indice": 0, "verificado": True,
+                                   "evidencia": "busca retorna resultados"}]),
+        _resposta_licoes([]),
+    ])
+    app, cfg = _app(tmp_path, modelo)
+    config = {"configurable": {"thread_id": cfg.thread_id}}
+    primeiro = app.invoke(
+        {"mensagens": [HumanMessage("crie a ferramenta buscar")],
+         "metadados_sessao": {"thread_id": cfg.thread_id}},
+        config=config,
+    )
+    interrupcoes = primeiro.get("__interrupt__")
+    assert interrupcoes, "pedido vago deveria pausar em discuss"
+    pergunta = interrupcoes[0].value
+    assert "?" in pergunta or "detalhe" in str(pergunta).lower()
+    # resume com a especificação → ciclo segue e termina em ship
+    final = app.invoke(
+        Command(resume="deve buscar arquivos por nome na pasta artefatos, com teste"),
+        config=config,
+    )
+    assert final["fluxo_trabalho"]["fase"] == "ship"
+    assert "🛳️" in final["mensagens"][-1].content

@@ -79,9 +79,24 @@ def montar_grafo(
         ultima = state["mensagens"][-1]
         if isinstance(ultima, AIMessage) and ultima.tool_calls:
             return "ferramentas"
+        # G1: no ciclo de entrega, resposta final (sem tool_calls) vai ao
+        # verify goal-backward — NUNCA ao fim direto.
+        ft = state.get("fluxo_trabalho")
+        if ft and ft.get("fase") in ("execute", "verify"):
+            return "verify_entrega"
         if len(state["mensagens"]) >= cfg.limiar_compressao:
             return "comprimir"
         return "verificar"  # C3: resposta final passa pela verificação
+
+    def rota_apos_verify_entrega(state: EstadoAegis) -> str:
+        """Tudo verificado → ship; reprovou → volta a execute (correção)."""
+        ft = state.get("fluxo_trabalho") or {}
+        return "ship" if ft.get("fase") == "ship" else "agente"
+
+    def rota_apos_classificador(state: EstadoAegis) -> str:
+        """G1: pedido de entrega → ciclo; senão fluxo legado byte-idêntico."""
+        ft = state.get("fluxo_trabalho")
+        return "ciclo" if ft and ft.get("fase") else "legado"
 
     def rota_apos_verificacao(state: EstadoAegis) -> str:
         """Divergência confirmada (1ª vez) volta ao agente para correção."""
@@ -125,13 +140,31 @@ def montar_grafo(
     grafo.add_node("no_planejamento", nos["no_planejamento"])
     grafo.add_node("no_replanejamento", nos["no_replanejamento"])
     grafo.add_node("no_verificar", nos["no_verificar"])
+    grafo.add_node("no_classificador_entrega", nos["no_classificador_entrega"])
+    grafo.add_node("no_discuss", nos["no_discuss"])
+    grafo.add_node("no_plan_entrega", nos["no_plan_entrega"])
+    grafo.add_node("no_verify_entrega", nos["no_verify_entrega"])
+    grafo.add_node("no_ship", nos["no_ship"])
 
     # --- Multiagente (F2): orquestrador na entrada, subgrafo por domínio ----
+    # G1: o classificador de entrega roda em AMBAS as entradas — o ramo
+    # "legado" do orquestrador (multi) e o START (mono) — para que o ciclo
+    # GSD funcione nos dois modos.
+    grafo.add_node("no_classificador_entrega_legado", nos["no_classificador_entrega"])
+    # G1: o classificador roteia ciclo GSD vs. fluxo legado em AMBOS os modos
+    # (mono: START → classificador; multi: orquestrador → legado → classificador).
+    grafo.add_conditional_edges(
+        "no_classificador_entrega_legado",
+        rota_apos_classificador,
+        {"ciclo": "no_discuss", "legado": "no_planejamento"},
+    )
     if cfg.multiagente_ativos:
         multi = montar_multiagente(cfg)
         grafo.add_node("no_orquestrador", multi["no_orquestrador"])
         grafo.add_edge(START, "no_orquestrador")
-        mapeamento: dict[str, str] = {"legado": "no_planejamento"}
+        mapeamento: dict[str, str] = {
+            "legado": "no_classificador_entrega_legado",
+        }
         for dominio in multi["dominios"]:
             no_sub = f"sub_{dominio}"
             grafo.add_node(no_sub, obter_subgrafo(dominio, llm, ferramentas, cfg))
@@ -143,16 +176,18 @@ def montar_grafo(
             mapeamento,
         )
     else:
-        # Fluxo legado (byte-idêntico): START → no_planejamento (heurística
-        # zero-LLM) → no_agente. No modo multiagente QUEM decide a entrada é o
-        # orquestrador (START → no_orquestrador); a rota dele encaminha PARA
-        # no_planejamento quando não há domínio. As arestas duplas rodariam o
-        # agente principal EM PARALELO com o subgrafo — bug de execução dupla.
-        grafo.add_edge(START, "no_planejamento")
+        # Fluxo legado (byte-idêntico): START → no_classificador_entrega
+        # (zero-LLM, G1) → fluxo legado (no_planejamento heurístico → agente)
+        # ou ciclo GSD (no_discuss → plan → execute → verify → ship).
+        grafo.add_edge(START, "no_classificador_entrega_legado")
 
     # C2: planejamento decide-entra no agente; replan volta para o agente
     grafo.add_edge("no_planejamento", "no_agente")
     grafo.add_edge("no_replanejamento", "no_agente")
+
+    # G1: ciclo de entrega — discuss → plan → execute(agente/ferramentas)
+    grafo.add_edge("no_discuss", "no_plan_entrega")
+    grafo.add_edge("no_plan_entrega", "no_agente")
 
     grafo.add_conditional_edges(
         "no_agente",
@@ -161,8 +196,15 @@ def montar_grafo(
             "ferramentas": "no_ferramentas",
             "comprimir": "no_compressao_contexto",
             "verificar": "no_verificar",
+            "verify_entrega": "no_verify_entrega",
         },
     )
+    grafo.add_conditional_edges(
+        "no_verify_entrega",
+        rota_apos_verify_entrega,
+        {"ship": "no_ship", "agente": "no_agente"},
+    )
+    grafo.add_edge("no_ship", "no_memoria")
     grafo.add_conditional_edges(
         "no_verificar",
         rota_apos_verificacao,

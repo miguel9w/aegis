@@ -95,4 +95,12 @@ class EstadoAegis(TypedDict):
     # Último resumo incremental da sessão (também persistido na Store)
     resumo_sessao: NotRequired[str]
     # Decisões-chave extraídas no fim do turno
-    decisoes_turno: NotRequired[list[str]]
+    decisoes_sessao: NotRequired[list[str]]
+
+    # --- Modo entrega (G1) ---
+    # Ciclo GSD ativo: {"fase": discuss|plan|execute|verify|ship, "plano": [...],
+    # "criterios": [{"texto", "verificado", "evidencia"}], "ship": {...},
+    # "feedback": str, "correcoes": int, "pergunta": str|None}
+    fluxo_trabalho: NotRequired[dict[str, Any]]
+    # Commits atômicos emitidos a cada wave do execute (append-only)
+    commits_entrega: NotRequired[Annotated[list[dict[str, Any]], operator.add]]

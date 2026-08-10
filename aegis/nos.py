@@ -28,6 +28,7 @@ from langchain_core.tools import BaseTool
 from langgraph.graph.message import RemoveMessage
 from langgraph.prebuilt import ToolNode
 from langgraph.store.base import BaseStore
+from langgraph.types import interrupt
 
 from .config import Config
 from .estado import EstadoAegis
@@ -42,6 +43,7 @@ from .prompts import (
     resumir_historico,
     resumir_sessao,
     sistema,
+    verificar_entrega,
     verificar_resposta,
 )
 
@@ -217,6 +219,96 @@ def _precisa_plano(pergunta: str) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------
+# G1 — Modo entrega (ciclo GSD): classificador zero-LLM
+# ---------------------------------------------------------------------
+
+_VERBOS_ENTREGA_G1 = (
+    "adicione", "adicionar", "implemente", "implementar", "refatore", "refatorar",
+    "corrija", "corrigir", "construa", "construir", "desenvolva", "desenvolver",
+    "gerencie", "gerenciar", "configure", "configurar", "instale", "instalar",
+    "crie", "criar", "escreva", "escrever", "gere", "gerar", "monte", "montar",
+    "implementa", "adiciona",
+)
+
+_SINAIS_REPO_G1 = (
+    "ferramenta", "tool", "arquivo", "codigo", "código", "funcao", "função",
+    "classe", "modulo", "módulo", "script", "teste", "testes", "push", "commit",
+    " pr ", "repo", "repositorio", "repositório", "api", "endpoint", "pacote",
+    "dependencia", "dependência", "projeto",
+)
+
+_PREFIXOS_INFORMATIVOS = (
+    "como ", "o que ", "o que é", "o que e", "quais ", "qual ", "por que ",
+    "quando ", "onde ", "quem ", "explique", "me explique", "liste", "listar",
+    "mostre", "descreva", "resuma", "diferenca", "diferença",
+)
+
+
+def _normalizar(texto: str) -> str:
+    texto = texto.lower()
+    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u"),
+                 ("ã", "a"), ("õ", "o"), ("ç", "c"), ("ê", "e"), ("ô", "o")):
+        texto = texto.replace(a, b)
+    return texto
+
+
+def _eh_pedido_entrega(pergunta: str) -> bool:
+    """Zero-LLM: pedido de ENTREGA (código/artefato/documento) vs. pergunta
+    informativa. Verbo de entrega + sinal de repo; prefixos informativos
+    ('como', 'explique'…) sempre ganham (pergunta ≠ ordem)."""
+    if not pergunta:
+        return False
+    t = _normalizar(pergunta)
+    if any(t.startswith(p) for p in _PREFIXOS_INFORMATIVOS):
+        return False
+    verbos = [v for v in _VERBOS_ENTREGA_G1 if v in t]
+    if not verbos:
+        return False
+    sinais = sum(1 for s in _SINAIS_REPO_G1 if s in t)
+    fortes = {"adicione", "adicionar", "adiciona", "implemente", "implementar",
+              "implementa", "refatore", "refatorar", "corrija", "corrigir",
+              "construa", "construir", "desenvolva", "desenvolver",
+              "gerencie", "gerenciar"}
+    return sinais >= 1 or any(v in fortes for v in verbos)
+
+
+def _eh_ambiguo(pergunta: str) -> bool:
+    """Zero-LLM: pedido de entrega sem especificação (detalhes de execução)
+    → discuss deve perguntar antes de planejar."""
+    t = _normalizar(pergunta)
+    espec = (" com ", " que ", " para ", " usando ", " via ", " teste",
+             " testes", " push", " commit", " pr ", " arquivo", " funcao",
+             " classe", " modulo", " que faz", " pasta ", " em ")
+    return not any(e in t for e in espec)
+
+
+def _parsear_vereditos_entrega(texto: str, total: int) -> list[dict]:
+    """Parse tolerante do JSON do verify goal-backward (G1): lista de
+    {indice, verificado, evidencia} na ordem dos critérios."""
+    import re
+
+    m = re.search(r"\{.*\}", texto, re.DOTALL)
+    if not m:
+        return []
+    try:
+        dados = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return []
+    lista = dados.get("criterios") if isinstance(dados, dict) else dados
+    if not isinstance(lista, list):
+        return []
+    saida: list[dict] = []
+    for item in lista:
+        if isinstance(item, dict) and "indice" in item:
+            saida.append({
+                "indice": int(item.get("indice", 0)),
+                "verificado": bool(item.get("verificado", False)),
+                "evidencia": str(item.get("evidencia", "")),
+            })
+    return saida
+
+
 def _parsear_plano(texto: str) -> list[dict[str, str]]:
     """Parse tolerante do JSON do plano: lista de {passo, objetivo} (máx. 6)."""
     import re
@@ -305,7 +397,7 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
     """
 
     llm_com_ferramentas = llm.bind_tools(ferramentas)
-    executor = ToolNode(ferramentas, messages_key="mensagens")
+    executor = ToolNode(ferramentas, messages_key="mensagens", handle_tool_errors=True)
 
     # ---- 1. Cognitivo -------------------------------------------------
     def no_agente(state: EstadoAegis) -> dict:
@@ -328,6 +420,20 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         # Plano ativo (C2) — guia o modelo passo a passo, com progresso
         if state.get("plano"):
             texto_sistema = texto_sistema + "\n\n" + _bloco_plano(state["plano"])
+        # Plano do ciclo GSD (G1) — injeta fase + critérios de aceite
+        ft = state.get("fluxo_trabalho")
+        if not state.get("plano") and ft and ft.get("plano"):
+            texto_sistema = (
+                texto_sistema
+                + "\n\n## Entrega em andamento (GSD)\nFase: "
+                + str(ft.get("fase", ""))
+                + "\n"
+                + _bloco_plano(list(ft.get("plano") or []))
+            )
+        if ft and ft.get("feedback"):
+            texto_sistema = (
+                texto_sistema + "\n\nFeedback da verificação anterior:\n" + str(ft["feedback"])
+            )
 
         # Recall hierárquico (C4): perfil → lições → resumo → decisões.
         # Barato (IDF, sem LLM); só injeta quando há conteúdo, mantendo o
@@ -399,11 +505,24 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                 })
 
         erros = _extrair_erros(saida.get("mensagens", saida.get("messages", [])))
-        return {
+        saida_node: dict[str, Any] = {
             "mensagens": saida.get("mensagens", saida.get("messages", [])),
             "registros_ferramentas": registros,
             "erros_ferramenta": erros,
         }
+        # G1: no execute, cada wave é auditada (fase no registro) e emite um
+        # commit atômico simbólico na lista de auditoria (replayável).
+        fluxo = state.get("fluxo_trabalho")
+        if fluxo and fluxo.get("fase") == "execute" and registros:
+            wave = len(state.get("commits_entrega") or []) + 1
+            for r in registros:
+                r["fase"] = "execute"
+            saida_node["commits_entrega"] = [{
+                "wave": wave,
+                "ts": time.strftime("%H:%M:%S"),
+                "resumo": f"wave {wave} — {registros[0].get('nome', 'ferramenta')}",
+            }]
+        return saida_node
 
     # ---- 3. Reflexão / auto-correção -----------------------------------
     def no_reflexao_auto_correcao(state: EstadoAegis) -> dict:
@@ -607,6 +726,174 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                 traceback.print_exc()
             return {}
 
+    # ---- 7b. Modo entrega (G1): discuss → plan → execute → verify → ship --
+    def no_classificador_entrega(state: EstadoAegis) -> dict:
+        """Zero-LLM: pedido de ENTREGA ativa o ciclo GSD; senão fluxo legado
+        (com `fluxo_trabalho: None`, sem custo e sem tocar no system)."""
+        if state.get("fluxo_trabalho"):  # ciclo já ativo (retomada de turno)
+            return {}
+        ultima = next(
+            (m for m in reversed(state.get("mensagens") or [])
+             if getattr(m, "type", "") == "human"),
+            None,
+        )
+        pergunta = str(getattr(ultima, "content", "") or "")[:500]
+        if _eh_pedido_entrega(pergunta):
+            return {"fluxo_trabalho": {
+                "fase": "discuss", "plano": [], "criterios": [], "ship": None,
+                "feedback": "", "correcoes": 0, "pergunta": None,
+            }}
+        return {"fluxo_trabalho": None}
+
+    def no_discuss(state: EstadoAegis) -> dict:
+        """Fase discuss: pedido vago → PERGUNTA ao usuário (interrupt, janela
+        da ponte); a resposta entra como anotação do plano. Especificado →
+        segue o ciclo (custo zero)."""
+        ft = dict(state.get("fluxo_trabalho") or {})
+        if ft.get("fase") != "discuss":
+            return {}
+        ultima = next(
+            (m for m in reversed(state.get("mensagens") or [])
+             if getattr(m, "type", "") == "human"),
+            None,
+        )
+        pergunta = str(getattr(ultima, "content", "") or "")
+        if _eh_ambiguo(pergunta):
+            resposta = interrupt(
+                "Detalhe a entrega: o que exatamente deve ser feito, em qual "
+                "arquivo/pasta e quais os critérios de aceite?"
+            )
+            ft["anotacoes"] = str(resposta or "")[:500]
+            ft["fase"] = "plan"
+            return {"fluxo_trabalho": ft}
+        ft["fase"] = "plan"
+        return {"fluxo_trabalho": ft}
+
+    def no_plan_entrega(state: EstadoAegis) -> dict:
+        """Fase plan: reusa o prompt de plano (C2); cada passo do plano vira
+        um critério de aceite do verify goal-backward."""
+        ft = dict(state.get("fluxo_trabalho") or {})
+        if ft.get("fase") != "plan":
+            return {}
+        ultima = next(
+            (m for m in reversed(state.get("mensagens") or [])
+             if getattr(m, "type", "") == "human"),
+            None,
+        )
+        pergunta = str(getattr(ultima, "content", "") or "")
+        anotacoes = ft.get("anotacoes") or ""
+        tarefa = pergunta + (f"\nDetalhes do usuário: {anotacoes}" if anotacoes else "")
+        try:
+            resp = com_retry(lambda: llm.invoke([
+                SystemMessage(planejar_tarefa()),
+                HumanMessage(f"Tarefa do usuário:\n{tarefa}"),
+            ]))
+            plano = _parsear_plano(resp.content)
+        except Exception:  # noqa: BLE001 — plano falha → critério único
+            if cfg.dev:
+                import traceback
+                traceback.print_exc()
+            plano = []
+        if plano:
+            ft["plano"] = plano
+            ft["criterios"] = [
+                {"texto": str(p.get("passo", ""))[:140], "verificado": False,
+                 "evidencia": ""}
+                for p in plano
+            ]
+        else:
+            ft["criterios"] = [
+                {"texto": tarefa[:140], "verificado": False, "evidencia": ""}
+            ]
+        ft["fase"] = "execute"
+        return {"fluxo_trabalho": ft}
+
+    def no_verify_entrega(state: EstadoAegis) -> dict:
+        """Verify goal-backward (G1): cada critério conferido contra as
+        evidências reais da execução. Reprovado → feedback + volta a execute
+        (sem ship); limite de correções força ship com o que passou (anti-loop)."""
+        ft = dict(state.get("fluxo_trabalho") or {})
+        criterios = list(ft.get("criterios") or [])
+        if not criterios:
+            ft["fase"] = "ship"
+            return {"fluxo_trabalho": ft}
+        try:
+            registros = state.get("registros_ferramentas") or []
+            trajetoria = "\n".join(
+                f"- {r.get('nome')}: {_truncar(r.get('resultado', ''), 250)}"
+                for r in registros[-8:]
+            ) or "(nenhuma evidência de execução)"
+            ultima = next(
+                (m for m in reversed(state.get("mensagens") or [])
+                 if getattr(m, "type", "") == "ai"),
+                None,
+            )
+            lista = json.dumps(
+                [{"indice": i, "texto": c["texto"]} for i, c in enumerate(criterios)],
+                ensure_ascii=False,
+            )
+            resp = com_retry(lambda: llm.invoke([
+                SystemMessage(verificar_entrega()),
+                HumanMessage(
+                    f"Critérios de aceite:\n{lista}\n\n"
+                    f"Resposta final:\n{str(getattr(ultima, 'content', '') or '')[:800]}\n\n"
+                    f"Evidências reais:\n{trajetoria}"
+                ),
+            ]))
+            vereditos = _parsear_vereditos_entrega(resp.content, len(criterios))
+        except Exception:  # noqa: BLE001 — verificação falha → nada ship (fail-safe)
+            if cfg.dev:
+                import traceback
+                traceback.print_exc()
+            vereditos = []
+        for i, c in enumerate(criterios):
+            v = vereditos[i] if i < len(vereditos) else {"verificado": False}
+            c["verificado"] = bool(v.get("verificado", False))
+            c["evidencia"] = str(v.get("evidencia", ""))[:200]
+        reprovados = [c["texto"] for c in criterios if not c["verificado"]]
+        correcoes = (ft.get("correcoes") or 0) + 1
+        ft["criterios"] = criterios
+        ft["correcoes"] = correcoes
+        if reprovados and correcoes <= 2:
+            ft["feedback"] = "Critérios não atendidos: " + " | ".join(reprovados)[:400]
+            ft["fase"] = "execute"
+            return {
+                "fluxo_trabalho": ft,
+                "mensagens": [HumanMessage(
+                    content=f"[verificação da entrega] {ft['feedback']} — corrija e refaça.")],
+            }
+        ft["feedback"] = ""
+        ft["fase"] = "ship"
+        return {"fluxo_trabalho": ft}
+
+    def no_ship(state: EstadoAegis) -> dict:
+        """Fase ship: selo da entrega + resumo + critérios; zero LLM."""
+        ft = dict(state.get("fluxo_trabalho") or {})
+        criterios = list(ft.get("criterios") or [])
+        ultima = next(
+            (m for m in reversed(state.get("mensagens") or [])
+             if getattr(m, "type", "") == "ai"),
+            None,
+        )
+        verificados = sum(1 for c in criterios if c.get("verificado"))
+        ft["ship"] = {
+            "resumo": str(getattr(ultima, "content", "") or "")[:400],
+            "criterios_verificados": verificados,
+            "total_criterios": len(criterios),
+            "commits": len(state.get("commits_entrega") or []),
+        }
+        linhas = "\n".join(
+            f"  {'✅' if c.get('verificado') else '⚠️'} {c.get('texto', '')[:100]}"
+            for c in criterios
+        ) or "  (sem critérios)"
+        msg = AIMessage(content=(
+            "🛳️ Entrega concluída (ciclo GSD) — fase `ship`.\n"
+            f"Critérios verificados: {verificados}/{len(criterios)}\n{linhas}\n"
+            f"Commits: {len(state.get('commits_entrega') or [])}\n"
+            f"Resumo: {ft['ship']['resumo']}"
+        ))
+        return {"mensagens": [msg], "fluxo_trabalho": ft}
+
     # ---- 8. Memória estrutural (C4) ---------------------------------------
     def no_memoria_estrutural(state: EstadoAegis) -> dict:
         """Resumo incremental + decisões-chave da sessão, persistidos na Store.
@@ -715,4 +1002,9 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         "no_replanejamento": no_replanejamento,
         "no_verificar": no_verificar,
         "no_memoria_estrutural": no_memoria_estrutural,
+        "no_classificador_entrega": no_classificador_entrega,
+        "no_discuss": no_discuss,
+        "no_plan_entrega": no_plan_entrega,
+        "no_verify_entrega": no_verify_entrega,
+        "no_ship": no_ship,
     }

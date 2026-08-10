@@ -308,3 +308,19 @@ def sistema_avaliador(dominio: str) -> str:
         "pode ter feedback curto. Nada além do JSON."
         % (dominio, criterios.get(dominio, criterios["escrita"]))
     )
+
+
+def verificar_entrega() -> str:
+    """Prompt do verify goal-backward da entrega (G1): cada critério de
+    aceite conferido contra as evidências reais da execução."""
+    return (
+        "Você é o VERIFICADOR GOAL-BACKWARD da entrega (ciclo GSD do Aegis).\n"
+        "Recebeu os critérios de aceite e as evidências produzidas pela execução\n"
+        " (saídas de ferramentas, arquivos criados, testes, registros).\n"
+        "Para CADA critério, decida se foi ATENDIDO com base APENAS nas\n"
+        " evidências reais — nunca suponha. Critério sem evidência = reprovado.\n"
+        "Retorne ESTRITAMENTE um JSON:\n"
+        "{\"criterios\": [{\"indice\": 0, \"verificado\": true|false,\n"
+        " \"evidencia\": \"o que comprova (fonte concreta)\"}]}\n"
+        "Um item por critério, na MESMA ordem dos critérios recebidos. Nada além do JSON."
+    )
