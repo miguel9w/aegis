@@ -1,16 +1,19 @@
-# Planejamento do Núcleo — 12 fases de aprimoramento
+# Planejamento do Núcleo — 23 fases de aprimoramento
 
 > Documento de planejamento do cérebro do Aegis (grafo LangGraph).
 > Cada fase é um incremento semântico entregue com TDD + commit verde + prova
 > de runtime, no padrão do projeto.
 >
-> **Dois blocos:** as fases **C1–C7** constroem o raciocínio (ciclo de
+> **Três blocos:** as fases **C1–C7** constroem o raciocínio (ciclo de
 > pensamento: aprender → planejar → verificar; blindagem: memória e
 > segurança; controle: custo e execução). As fases **G1–G5** constroem a
 > DISCIPLINA DE ENTREGA (inspiradas no GSD — Git. Ship. Done.):
 > discuss → plan → execute → verify → ship, UAT conversacional, revisão por
 > pares, aprendizados estruturados e versionados, e pausa/retomada com
-> reversão segura.
+> reversão segura. As fases **X1–X11** expandem capacidades (subagentes,
+> skills, fact-checking, colaboração humana) e endurecem qualidade
+> (observabilidade, self-critique, modo conservador, preços, property tests,
+> sanitização de saída).
 
 ---
 
@@ -396,19 +399,264 @@ restaura o repo sem perda lateral.
 
 ---
 
-## Backlog (ideias fora das 12 fases, para depois)
+# Fases X — expansão e endurecimento de qualidade
 
-1. **Subagentes sob demanda (catálogo)** — delegar código (roda testes no sandbox), delegar dados (pandas), delegar revisão (code review) — mesmo padrão de `delegar_pesquisa`/`delegar_redacao`.
-2. **Skills/playbooks do agente** — procedimentos reutilizáveis em `extensions/skills/` que o agente carrega e segue (memória procedimental versionada), com frontmatter.
-3. **Fact-checking com fontes** — respostas de pesquisa citam fontes e o agente cruza ≥2 fontes antes de afirmar (paridade `web-deep-research`).
-4. **Early exit inteligente** — o agente decide quando já tem o suficiente e não roda mais ferramentas (economia + latência).
-5. **Colaboração humana no núcleo** — tool `perguntar_humano` com timeout (a janela de perguntas da web UI já existe; falta o caminho no núcleo para o gateway/TUI).
-6. **Observabilidade do pensamento** — reasoning/plano como ESTRUTURA (não só texto) nos eventos da ponte; "estado mental" por nó.
-7. **Avaliação de resposta (self-critique)** — rascunho final avaliado em critérios (correção, completude, evidência) com revisão em tarefas complexas — custo controlado.
-8. **Modo conservador estendido** — rebaixar estratégia automaticamente por tipo de provider (free vs pago), não só por flag.
-9. **Estatísticas de preço por modelo** — tabela por provider no `limites.json` (alimenta C6).
-10. **Property tests do núcleo (hypothesis)** — invariantes globais: terminação, sandbox de escrita, auditoria, ordenação mensagens.
-11. **Prompt-injection na resposta** — sanitizar saída do modelo na UI (links disfarçados, falso markdown) além dos segredos.
+> As ideias antes listadas como "backlog" são promovidas a fases próprias.
+> Agrupadas por natureza: X1–X3 expandem CAPACIDADES (delegação, skills,
+> fact-checking); X4–X7 melhoram o processo (early exit, colaboração
+> humana, observabilidade, self-critique); X8–X11 endurecem controle e
+> qualidade (modo conservador, preços, property tests, sanitização).
+
+---
+
+## Fase X1 — Catálogo de subagentes sob demanda
+
+**Objetivo:** além de `delegar_pesquisa`/`delegar_redacao`, um catálogo de
+delegados especializados — cada um com pool de ferramentas reduzido e o mesmo
+loop de auto-correção do núcleo.
+
+**Mudanças:**
+- Tools novas: `delegar_codigo` (implementa com testes no sandbox de escrita),
+  `delegar_dados` (análise com pandas no sandbox) — e `delegar_revisao` entra
+  como revisor dedicado do G3.
+- Catálogo em `config/dados/delegados.json`: nome, descrição (para o LLM
+  escolher), ferramentas permitidas, `arq_limite` (para evitar delegação em
+  cascata infinita).
+- Cada subgrafo reaproveita `fabrica_nos` com `prompt_fn` de persona
+  (padrão já usado pelos especialistas multiagente).
+
+**Testes:**
+- cada delegado: subgrafo executa com pool restrito e auto-correção própria.
+- delegação aninhada bloqueada no limite de profundidade.
+- sem ferramentas do delegado → resposta direta.
+
+**Critério de aceite:** turno real "implemente a função X com testes" delega a
+`delegar_codigo`, que entrega código + teste verde via sandbox.
+
+---
+
+## Fase X2 — Skills/playbooks do agente (memória procedimental versionada)
+
+**Objetivo:** generalizar `extensions/skills/` (hoje há `pesquisa-tecnica`):
+skills com frontmatter (nome, descrição, gatilho) que o agente CARREGA sob
+demanda e segue — procedimentos reutilizáveis versionados no repo.
+
+**Mudanças:**
+- Registro dinâmico: skill nova em `extensions/skills/<nome>/SKILL.md` fica
+  disponível sem reiniciar (varredura por diretório no carregamento).
+- Tool `carregar_skill` (lista por descrição → injeta o corpo no contexto) com
+  teto de tokens; o agente decide pelo gatilho/descrição.
+- Skills no RAG-lite: `pesquisar_memoria` já indexa `extensions/skills/` —
+  evolui para ranquear skills pela descrição (sem ler o corpo de todas).
+
+**Testes:**
+- skill nova registrada → `carregar_skill` a encontra (sem reiniciar).
+- injeção respeita teto de tokens; skill irrelevante não é carregada.
+- skill com frontmatter inválido → ignorada com aviso (nunca quebra o grafo).
+
+**Critério de aceite:** skill "revisar-codigo" criada no repo é carregada e
+seguida num turno real sem reiniciar o serviço.
+
+---
+
+## Fase X3 — Fact-checking com fontes (paridade web-deep-research)
+
+**Objetivo:** respostas baseadas em pesquisa citam fontes e o agente cruza
+≥2 fontes antes de afirmar — divergência vira sinalização explícita.
+
+**Mudanças:**
+- Ferramentas de busca devolvem `{url, titulo, trecho}` por resultado (hoje
+  texto solto); a resposta final com afirmação de fonte anexa as URLs.
+- Nó `no_fact_check` (antes do fim, quando o turno consultou web): verifica
+  cada afirmação-chave contra o conjunto de fontes; consistência entre ≥2
+  fontes → `afirmado`; conflito → `divergencia` e a resposta cita as duas.
+- Estado: `fontes: list[{afirmacao, urls, status}]` (auditável).
+
+**Testes:**
+- duas fontes concordando → afirmação com status `afirmado` e URLs na resposta.
+- fontes conflitantes → `divergencia` citada (fake de busca scriptado).
+- turno sem web → `no_fact_check` não roda (zero custo).
+
+**Critério de aceite:** pergunta de pesquisa real responde com fontes citadas
+e, se houver conflito, aponta a divergência explicitamente.
+
+---
+
+## Fase X4 — Early exit inteligente
+
+**Objetivo:** o agente decide quando JÁ TEM o suficiente e para de rodar
+ferramentas — menos latência e custo em turnos triviais.
+
+**Mudanças:**
+- Sinal no system: "terminou de coletar o necessário? responda — não execute
+  mais ferramentas para 'completar'".
+- Heurística barata `no_early_exit` (antes de `no_agente`): turno com 0
+  ferramentas necessárias (pergunta factual simples) → salta direto para
+  resposta única; sem LLM extra.
+- Métrica: `steps_por_turno` no estado (alimenta C6/estatísticas).
+
+**Testes:**
+- pergunta trivial → 1 chamada de LLM (invariante: nenhuma ferramenta).
+- pergunta com ferramenta necessária → fluxo normal (não corta cedo).
+- justificativa do early exit em `registros_ferramentas` (auditoria).
+
+**Critério de aceite:** turno "2+2?" custa 1 chamada e responde sem ferramentas
+(prova via `steps_por_turno == 1`).
+
+---
+
+## Fase X5 — Colaboração humana no núcleo (tool `perguntar_humano`)
+
+**Objetivo:** o agente pergunta quando há ambiguidade — em TODAS as
+superfícies (a janela de perguntas da web já existe; falta o caminho no núcleo
+para TUI e gateway).
+
+**Mudanças:**
+- Tool `perguntar_humano` (núcleo): emite evento `pergunta` na ponte (todas as
+  UIs renderizam); resposta entra como `HumanMessage` e o fluxo continua.
+- Timeout configurável (`pergunta_timeout_s`): sem resposta → `default` do
+  config (ou aborta com explicação) — nunca trava.
+- Permissão: allowlist de perguntas (só ambiguidade real, nunca para decidir
+  o óbvio — regra no prompt).
+
+**Testes:**
+- pergunta emitida → resposta → fluxo continua do ponto exato.
+- timeout → default usado + registro (`comandos.jsonl` analogia: `perguntas`)
+- pergunta sem allowlist → rejeitada pelo provider (regra testada no fake).
+
+**Critério de aceite:** turno ambíguo via TUI pergunta e aguarda sua resposta
+com timeout; gateway idem via evento REST/SSE.
+
+---
+
+## Fase X6 — Observabilidade do pensamento (estruturado)
+
+**Objetivo:** reasoning/plano saem como ESTRUTURA nos eventos da ponte — não
+só texto — e cada rota do grafo declara sua razão (estado mental visível).
+
+**Mudanças:**
+- Ponte: evento `raciocinio` estruturado `{partes: [{tipo: thinking|plano|decisao, texto}]}`
+  (o reasoning já é capturado nos chunks — agora rotulado por origem).
+- `rota_*` emitem `motivo` (ex.: "tool falhou 2× → reflexao") em
+  `metadados_sessao.rota_motivo` — a UI mostra "por que o agente fez isso".
+- Novos nós (C2/G1) declaram `fluxo_trabalho.fase` no evento `fase`.
+
+**Testes:**
+- evento `raciocinio` com formato invariante (schema validado no bun test).
+- `rota_motivo` presente em cada salto de nó (invariante de grafo).
+- wire cru continua funcionando (regressão do protocolo).
+
+**Critério de aceite:** turno real exibe na web UI a decisão de rota ("erro de
+ferramenta → reflexão") e o reasoning rotulado por parte.
+
+---
+
+## Fase X7 — Self-critique de resposta final
+
+**Objetivo:** rascunho final avaliado em critérios (correção, completude,
+evidência) — com revisão em tarefas complexas e custo controlado.
+
+**Mudanças:**
+- Após a resposta final (tarefas com ≥N steps, config `self_critique_min_steps`):
+  o agente avalia o próprio rascunho contra checklist e re-gera se reprovar
+  item `correcao`/`evidencia` (máx. 1 revisão por turno — anti-loop).
+- Estado: `avaliacao: {criterios: [{item, veredito}], revisado}`.
+- Tarefas simples → pulo (custo zero).
+
+**Testes:**
+- rascunho reprovado em `correcao` → 1 re-geração e veredito final.
+- reprovação dupla → não re-gera (limite 1) — invariante anti-loop.
+- tarefa simples → sem avaliação (ausência de custo).
+
+**Critério de aceite:** turno complexo real mostra `avaliacao` no estado e a
+resposta final é o resultado revisado.
+
+---
+
+## Fase X8 — Modo conservador estendido (por provider)
+
+**Objetivo:** rebaixar estratégia automaticamente por tipo de provider (free
+vs pago), não só pela flag manual atual.
+
+**Mudanças:**
+- `limites.json` ganha `providers: {zen_free: {conservador: true, cmd_curto: 60}, ...}`;
+  `Config` infere o tipo pela `OPENAI_API_BASE` (regras) e seta
+  `modo_conservador` no boot — ainda sobrescrevível manualmente.
+- O nó de planejamento (C2) e a reflexão (C1) consultam o modo para reduzir
+  passos/lições quando conservador.
+
+**Testes:**
+- base zen → conservador ativo; base paga → inativo (sem env custom).
+- flag manual sobrescreve a inferência (prioridade do usuário).
+
+**Critério de aceite:** boot com base zen reporta `modo_conservador=true` no
+`/api/healthz` estendido; com provider pago, falso.
+
+---
+
+## Fase X9 — Estatísticas de preço por modelo
+
+**Objetivo:** tabela de preços por provider em `limites.json` — C6 passa a
+estimar custo REAL (moeda) por turno/sessão.
+
+**Mudanças:**
+- `limites.json`: `precos: {entrada_por_M, saida_por_M, raciocinio_por_M}` por
+  provider/modelo; fallback 0 quando ausente.
+- `uso_tokens` (C6) multiplica pela tabela → `custos` no estado e na tool
+  `estatisticas` (C6).
+- Export JSON de custos por sessão (relatório).
+
+**Testes:**
+- tabela ausente → custo 0 + aviso (nunca erro).
+- cálculo exato com tabela conhecida (caso fixo).
+- `estatisticas` soma correta entre turnos (regressão C6).
+
+**Critério de aceite:** `estatisticas` em um turno real mostra custo estimado
+em reais com a tabela do provider ativo.
+
+---
+
+## Fase X10 — Property tests do núcleo (hypothesis)
+
+**Objetivo:** invariantes globais do grafo provadas por geração de entradas
+aleatórias — não só casos escritos à mão.
+
+**Mudanças:**
+- Suíte nova `tests/property/`: geradores de sequências de mensagens/tool
+  results (incluindo erros, conteúdo malicioso, tool_calls órfãs).
+- Invariantes: terminação (sempre `fim`, nunca loop infinito — com
+  `recursion_limit` respeitado), sandbox de escrita (nada fora de
+  `artefatos_dir`), auditoria (toda execução registrada), ordenação das
+  mensagens, fluxo legado byte-idêntico quando `multiagente_ativos=false`.
+- Roda na suíte padrão (pytest com hypothesis) com seed fixo no CI.
+
+**Testes:** a suíte É o teste; aceitação = 1000+ execuções geradas sem
+violar invariante.
+
+**Critério de aceite:** `pytest tests/property/` verde com contagem de casos
+gerados ≥1000 (relatório hypothesis).
+
+---
+
+## Fase X11 — Sanitização da saída na UI (anti prompt-injection na resposta)
+
+**Objetivo:** além dos segredos, a UI saneia a SAÍDA do modelo: links
+disfarçados (texto ≠ href), falso markdown, spoofing de comandos/blocos.
+
+**Mudanças:**
+- Server: sanitizador de saída na ponte (regras: `_SEGREDO` já existe →
+  estende para URL spoofing, leaks de chave em texto solto) — cabeçalho
+  `X-Saneado` no frame.
+- Client (bun test): renderizador neutraliza `[texto](javascript:…)`,
+  mostra href real em tooltips, escapa blocos aninhados maliciosos.
+- Auditoria: saída saneada registrada como `saneamento: {regras_violadas}`.
+
+**Testes (bun):**
+- 10 casos de injeção de saída (javascript:, data:, falso comando) → todos
+  neutralizados; regressão dos segredos (`_SEGREDO`).
+
+**Critério de aceite:** colar saída maliciosa num turno real renderiza
+neutralizado na web UI (evidência no browser).
 
 ---
 
@@ -418,19 +666,34 @@ restaura o repo sem perda lateral.
 C1 (aprender) ──► C2 (planejar) ──► C3 (verificar)        ciclo de pensamento
 C4 (memória estrutural)   ← usa lições de C1 e alimenta C2/C3
 G1 (modo entrega)         ← usa plano (C2) e verificação (C3)
-G2 (UAT conversacional)   ← após ship de G1
-G3 (revisão por pares)    ← entre verify (C3) e ship (G1)
-C5 (segurança)            ← independente; pode entrar em paralelo a C4
-C6 (orçamento)            ← usa `uso_tokens`; UI avisa
+G2 (UAT conversacional)   ← após ship de G1; usa `perguntar_humano` (X5)
+G3 (revisão por pares)    ← entre verify (C3) e ship (G1); revisor de X1
+C5 (segurança)            ← independente; X11 (sanitização) se soma
+C6 (orçamento)            ← usa `uso_tokens` + preços de X9
 C7 (sandbox remoto)       ← independe de C1–C6
 G4 (aprendizados + grafo) ← evolui C1
 G5 (pausa/retomada+undo)  ← usa handoff do checkpointer (C4) e o ciclo G1
+X1 (subagentes)           ← reusa `fabrica_nos`/especialistas multiagente
+X2 (skills)               ← generaliza `extensions/skills/` existente
+X3 (fact-check)           ← após consultas web; alimenta C3 (evidência)
+X4 (early exit)           ← barato e independente; pode entrar cedo
+X5 (perguntar_humano)     ← independe; habilita G2/X7
+X6 (observabilidade)      ← sobre a ponte; independe de C
+X7 (self-critique)        ← usa C3 (evidência) e X5 (perguntas)
+X8 (modo conservador)     ← amplia flag atual; ajusta C1/C2
+X9 (preços)               ← alimenta C6
+X10 (property tests)      ← meta-fase contínua sobre os invariantes de todas
+X11 (sanitização saída)   ← junto de C5 (segurança) na ponte/UI
 ```
 
 Sequência recomendada de execução:
-**C1 → C2 → C3 → C4 → G1 → G2 → G3 → C5 → C6 → C7 → G4 → G5**,
-com C5 podendo ser antecipada (segurança primeiro) se o uso com conteúdo
-externo crescer antes do previsto.
+**C1 → C2 → C3 → C4 → G1 → G2 → G3 → C5 → C6 → C7 → G4 → G5 → X1 → X2 → X3 → X4 → X5 → X6 → X7 → X8 → X9 → X10 → X11**,
+
+com intercalações opcionais: C5 pode ser antecipada (segurança primeiro) se o
+uso com conteúdo externo crescer; X4 (early exit) e X6 (observabilidade)
+entram baratos em qualquer ponto após C2; X5 habilita G2 e X7; X8/X9
+precedem C6; X11 acompanha C5; X10 roda continuamente desde a primeira fase
+(regressão dos invariantes a cada entrega).
 
 Cada fase termina com: código + testes verdes (pytest + bun) + commit/README
 + prova de runtime (turno real documentado no browser/TUI), no padrão do
