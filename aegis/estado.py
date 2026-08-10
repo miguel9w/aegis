@@ -82,3 +82,11 @@ class EstadoAegis(TypedDict):
     plano: NotRequired[list[dict[str, str]]]
     # True quando o planejamento já foi considerado neste turno (evita re-LLM)
     plano_considerado: NotRequired[bool]
+
+    # --- Verify-then-answer (C3) ---
+    # Evidências da verificação: [{"fonte", "conferida", "observacao"}]
+    evidencias: NotRequired[list[dict[str, Any]]]
+    # Veredito da última verificação: "ok" | "divergencia"
+    verificacao_veredito: NotRequired[str]
+    # Nº de correções por verificação no turno (limita o loop corrigir→verificar)
+    verificacoes_realizadas: NotRequired[int]

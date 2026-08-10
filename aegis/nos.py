@@ -41,6 +41,7 @@ from .prompts import (
     replanejar_tarefa,
     resumir_historico,
     sistema,
+    verificar_resposta,
 )
 
 # ---------------------------------------------------------------------
@@ -254,6 +255,39 @@ def _bloco_plano(plano: list[dict]) -> str:
         objetivo = f" — {p['objetivo']}" if p.get("objetivo") else ""
         linhas.append(f"{marcador} {i}. {p['passo']}{objetivo} [{status}]")
     return "## Plano ativo (progrida passo a passo; atualize o plano se uma etapa falhar)\n" + "\n".join(linhas)
+
+
+def _parsear_verificacao(texto: str) -> dict | None:
+    """Parse tolerante do JSON de verificação: {"veredito", "evidencias"}.
+
+    Retorna None quando não há JSON válido — o fluxo trata como "sem veredito"
+    (segue sem loop e sem evidência extra).
+    """
+    import re
+
+    texto = texto.strip()
+    m = re.search(r"\{.*\}", texto, re.DOTALL)
+    if not m:
+        return None
+    try:
+        dados = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(dados, dict):
+        return None
+    veredito = str(dados.get("veredito", "ok")).lower()
+    if veredito not in ("ok", "divergencia"):
+        veredito = "ok"
+    evidencias = dados.get("evidencias", [])
+    limpas: list[dict[str, Any]] = []
+    for e in evidencias if isinstance(evidencias, list) else []:
+        if isinstance(e, dict) and str(e.get("fonte", "")).strip():
+            limpas.append({
+                "fonte": str(e["fonte"]).strip()[:120],
+                "conferida": bool(e.get("conferida", True)),
+                "observacao": str(e.get("observacao", "")).strip()[:300],
+            })
+    return {"veredito": veredito, "evidencias": limpas}
 
 
 # ---------------------------------------------------------------------
@@ -515,7 +549,55 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                 traceback.print_exc()
             return {"plano": plano}
 
-    # ---- 7. Reflexão pós-turno (C1) ---------------------------------------
+    # ---- 7. Verify-then-answer (C3) ---------------------------------------
+    def no_verificar(state: EstadoAegis) -> dict:
+        """Conferir a resposta final contra as evidências da execução.
+
+        Só atua quando o turno usou ferramentas E não corrigiu ainda (limite
+        de 1 correção evita loop). Sem ferramentas ou modo estrito desligado →
+        custo zero. A divergência volta ao agente para correção.
+        """
+        if not cfg.verificacao_estrita:
+            return {}
+        if not (state.get("registros_ferramentas") or []):
+            return {}
+        if (state.get("verificacoes_realizadas") or 0) >= 1:
+            # verificação já ocorreu (e corrigiu se preciso) → zera o veredito
+            # para a rota não reentrar no loop corrigir→verificar
+            return {"verificacao_veredito": "ok"}
+        try:
+            ultima_resposta = next(
+                (m for m in reversed(state.get("mensagens") or [])
+                 if getattr(m, "type", "") == "ai"),
+                None,
+            )
+            registros = state.get("registros_ferramentas") or []
+            trajetoria = "\n".join(
+                f"- {r.get('nome')}: {_truncar(r.get('resultado', ''), 300)}"
+                for r in registros[-6:]
+            )
+            resp = com_retry(lambda: llm.invoke([
+                SystemMessage(verificar_resposta()),
+                HumanMessage(
+                    f"Resposta final do agente:\n{str(getattr(ultima_resposta, 'content', '') or '')[:800]}\n\n"
+                    f"Execução real (evidências):\n{trajetoria}"
+                ),
+            ]))
+            v = _parsear_verificacao(resp.content)
+            if v is None:
+                return {}  # sem JSON → segue (sem evidência, sem loop)
+            return {
+                "evidencias": v["evidencias"],
+                "verificacao_veredito": v["veredito"],
+                "verificacoes_realizadas": (state.get("verificacoes_realizadas") or 0) + 1,
+            }
+        except Exception:  # noqa: BLE001 — verificação falha sem derrubar o fluxo
+            if cfg.dev:
+                import traceback
+                traceback.print_exc()
+            return {}
+
+    # ---- 8. Reflexão pós-turno (C1) ---------------------------------------
     def no_reflexao_pos_turno(state: EstadoAegis) -> dict:
         """Extrai lições duráveis da trajetória do turno e grava na Store.
 
@@ -572,4 +654,5 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         "no_reflexao_pos_turno": no_reflexao_pos_turno,
         "no_planejamento": no_planejamento,
         "no_replanejamento": no_replanejamento,
+        "no_verificar": no_verificar,
     }

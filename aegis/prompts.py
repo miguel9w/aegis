@@ -195,6 +195,23 @@ def replanejar_tarefa() -> str:
     )
 
 
+def verificar_resposta() -> str:
+    """Prompt do nó de verificação (C3): conferir a resposta contra evidências."""
+    return (
+        "Você é o verificador do Aegis. Um turno acabou de executar ferramentas "
+        "e gerou uma resposta final. Confira se a resposta é CONFIRMADA pelas "
+        "evidências da execução real (resultados das ferramentas/levantamentos).\n"
+        "Regras:\n"
+        "1. Veredito 'ok' apenas se a resposta bate com as evidências.\n"
+        "2. 'divergencia' quando a resposta contradiz a evidência, inventa dados "
+        "ou extrapola além do que foi executado.\n"
+        "3. Produza uma evidência por ponto confirmado/divergente, com fonte "
+        "clara (ex.: 'saída do comando'):\n"
+        '{"veredito": "ok"|"divergencia", "evidencias": [{"fonte": "...", '
+        '"conferida": true|false, "observacao": "..."}]}.'
+    )
+
+
 def sistema_pesquisador() -> str:
     """Prompt do subagente PESQUISADOR (persona de pesquisa profunda)."""
     return (

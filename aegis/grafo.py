@@ -81,7 +81,16 @@ def montar_grafo(
             return "ferramentas"
         if len(state["mensagens"]) >= cfg.limiar_compressao:
             return "comprimir"
-        return "fim"
+        return "verificar"  # C3: resposta final passa pela verificação
+
+    def rota_apos_verificacao(state: EstadoAegis) -> str:
+        """Divergência confirmada (1ª vez) volta ao agente para correção."""
+        if (
+            state.get("verificacao_veredito") == "divergencia"
+            and (state.get("verificacoes_realizadas") or 0) <= 1
+        ):
+            return "agente"
+        return "memoria"
 
     def rota_apos_ferramentas(state: EstadoAegis) -> str:
         erro_na_ultima_execucao = _ultima_ferramenta_erro(state["mensagens"])
@@ -114,6 +123,7 @@ def montar_grafo(
     grafo.add_node("no_reflexao_pos_turno", nos["no_reflexao_pos_turno"])
     grafo.add_node("no_planejamento", nos["no_planejamento"])
     grafo.add_node("no_replanejamento", nos["no_replanejamento"])
+    grafo.add_node("no_verificar", nos["no_verificar"])
 
     # --- Multiagente (F2): orquestrador na entrada, subgrafo por domínio ----
     if cfg.multiagente_ativos:
@@ -149,8 +159,13 @@ def montar_grafo(
         {
             "ferramentas": "no_ferramentas",
             "comprimir": "no_compressao_contexto",
-            "fim": "no_memoria",
+            "verificar": "no_verificar",
         },
+    )
+    grafo.add_conditional_edges(
+        "no_verificar",
+        rota_apos_verificacao,
+        {"agente": "no_agente", "memoria": "no_memoria"},
     )
     grafo.add_conditional_edges(
         "no_ferramentas",

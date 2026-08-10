@@ -530,3 +530,87 @@ def test_replanejamento_reformula_com_llm(tmp_path):
     plano_novo = saida["plano"]
     assert [p["passo"] for p in plano_novo] == ["validar saída"]
     assert all(p["status"] == "pendente" for p in plano_novo)
+
+
+# ---------------------------------------------------------------------
+# C3 — Verify-then-answer: evidência antes de confirmar
+# ---------------------------------------------------------------------
+
+def _resposta_verificacao(veredito: str, evidencias: list[dict]) -> AIMessage:
+    import json
+    return AIMessage(content=json.dumps(
+        {"veredito": veredito, "evidencias": evidencias}, ensure_ascii=False))
+
+
+def test_turno_com_ferramenta_gera_evidencia(tmp_path):
+    """Turno com ferramenta → verificação anexa evidência e segue ao fim."""
+    from aegis.memoria import namespace_licoes
+    modelo = ModeloFake()
+    modelo.configurar([
+        chamada_tool("calculadora", {"expressao": "2 + 2"}, id_chamada="call_a"),
+        AIMessage(content="Resultado: 4."),
+        _resposta_verificacao("ok", [{"fonte": "calculadora", "conferida": True,
+                                      "observacao": "resultado bate"}]),
+        _resposta_licoes([]),
+    ])
+    app, cfg = _app(tmp_path, modelo)
+    resultado = app.invoke(
+        {"mensagens": [HumanMessage("calcule 2+2")],
+         "metadados_sessao": {"thread_id": cfg.thread_id}},
+        config={"configurable": {"thread_id": cfg.thread_id}},
+    )
+    assert resultado.get("evidencias"), "evidência não anexada após verificação"
+    assert resultado["evidencias"][0]["conferida"] is True
+    assert resultado.get("verificacao_veredito") == "ok"
+
+
+def test_divergencia_dispara_correcao(tmp_path):
+    """Veredito divergente → agente corrige a resposta (uma única vez)."""
+    modelo = ModeloFake()
+    modelo.configurar([
+        chamada_tool("calculadora", {"expressao": "2 + 2"}, id_chamada="call_a"),
+        AIMessage(content="Resultado: 2."),  # resposta errada
+        _resposta_verificacao("divergencia", [{"fonte": "calculadora", "conferida": False,
+                                               "observacao": "calculadora diz 4"}]),
+        AIMessage(content="Resultado correto: 4."),  # correção
+        _resposta_licoes([]),
+    ])
+    app, cfg = _app(tmp_path, modelo)
+    resultado = app.invoke(
+        {"mensagens": [HumanMessage("calcule 2+2")],
+         "metadados_sessao": {"thread_id": cfg.thread_id}},
+        config={"configurable": {"thread_id": cfg.thread_id}},
+    )
+    assert resultado["mensagens"][-1].content == "Resultado correto: 4."
+    assert resultado.get("verificacoes_realizadas") == 1
+    assert resultado["evidencias"][0]["conferida"] is False
+
+
+def test_sem_ferramentas_nao_verifica(tmp_path):
+    """Turno sem ferramentas → verificação não chama LLM adicional."""
+    from aegis.nos import fabricar_nos
+    espiao = ModeloEspiao(saida="resposta simples")
+    cfg = _cfg(tmp_path)
+    nos = fabricar_nos(espiao, [], None, cfg)
+    saida = nos["no_verificar"]({
+        "mensagens": [HumanMessage("oi")],
+        "metadados_sessao": {"thread_id": "t-sem-tools"},
+    })
+    assert not espiao.chamadas, "verificação não deveria chamar LLM sem ferramentas"
+    assert not saida
+
+
+def test_modo_estrita_desligada_nao_verifica(tmp_path):
+    """verificacao_estrita=False → verificação inativa mesmo com ferramentas."""
+    from aegis.nos import fabricar_nos
+    cfg = _cfg(tmp_path)
+    cfg.verificacao_estrita = False
+    espiao = ModeloEspiao(saida="não deveria ser chamado")
+    nos = fabricar_nos(espiao, [], None, cfg)
+    saida = nos["no_verificar"]({
+        "mensagens": [HumanMessage("roda o comando")],
+        "metadados_sessao": {"thread_id": "t-estrita-off"},
+        "registros_ferramentas": [{"nome": "comando_sandbox", "resultado": "ok", "erro": False}],
+    })
+    assert not espiao.chamadas
+    assert not saida

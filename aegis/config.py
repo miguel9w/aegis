@@ -59,6 +59,12 @@ class Config:
             os.getenv("AEGIS_MEMORIA_ATIVA", "true").strip().lower() in {"1", "true", "yes"}
         )
 
+        # --- Verify-then-answer (C3): conferir resposta contra evidências ---
+        self.verificacao_estrita: bool = (
+            os.getenv("AEGIS_VERIFICACAO_ESTRITA", "true").strip().lower()
+            in {"1", "true", "yes"}
+        )
+
         # --- Habilidades / trajetória ---
         self.skills_dir: Path = RAIZ / os.getenv("AEGIS_SKILLS_DIR", "extensions/skills")
         # Flag de ativação + diretório (separados — AEGIS_TRAJETORIA é um switch)
