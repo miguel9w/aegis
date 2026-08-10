@@ -230,10 +230,12 @@ async def executar_job(
         return {"job_id": job_id, **campos}
 
     configurar = {
-        "configurable": {
-            "thread_id": thread_id,
-            "recursion_limit": getattr(cfg, "recursion_limit", 50),
-        }
+        "configurable": {"thread_id": thread_id},
+        # O LangGraph lê `recursion_limit` no TOPO do config (default 25) —
+        # dentro de `configurable` ele é ignorado e turnos longos (ex.: revisão
+        # com muitas ferramentas) morriam com GraphRecursionError aos 25 passos.
+        # Mesmo formato da TUI (aegis/tui.py).
+        "recursion_limit": getattr(cfg, "recursion_limit", 50),
     }
     entrada = {
         "mensagens": [HumanMessage(texto)],

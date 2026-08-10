@@ -275,6 +275,35 @@ def test_historico_threads(tmp_path, monkeypatch):
     assert any(t["thread_id"] == "web-hist" for t in threads)
 
 
+class AppQueCapturaConfig:
+    """App fake cujo astream_events registra o config recebido (e nada além)."""
+
+    def __init__(self):
+        self.config_recebido: dict | None = None
+
+    async def astream_events(self, entrada, config=None, version="v2"):
+        self.config_recebido = config
+        yield {
+            "event": "on_chain_end",
+            "name": "LangGraph",
+            "data": {"output": {"mensagens": [AIMessage(content="ok")]}},
+        }
+        return
+
+
+def test_executar_job_passa_recursion_limit_no_topo_do_config():
+    """O LangGraph lê `recursion_limit` no TOPO (default 25); dentro do
+    `configurable` é ignorado e turnos longos morriam aos 25 passos."""
+    app = AppQueCapturaConfig()
+    frames = _coletar(app, "oi")
+    cfg_recebido = app.config_recebido
+    assert cfg_recebido is not None
+    assert cfg_recebido["recursion_limit"] == 50  # topo — o LangGraph lê daqui
+    assert cfg_recebido["configurable"]["thread_id"] == "teste-1"
+    assert "recursion_limit" not in cfg_recebido["configurable"]
+    assert any(f["kind"] == "fim" for f in frames)
+
+
 def test_linha_malformada_nao_derruba(monkeypatch, capsys):
     import aegis.webui_bridge as bridge
     monkeypatch.setattr(sys, "stdin", io.StringIO('{"cmd":"ping"}\nnao-eh-json\n'))
