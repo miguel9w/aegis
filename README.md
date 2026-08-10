@@ -35,6 +35,7 @@ tudo em SQLite — tudo com uma interface de terminal (TUI) moderna em streaming
 - **Subagentes avançados (agent-as-tool)** — o agente delega tarefas a subgrafos especialistas: `delegar_pesquisa` (pesquisador com busca web + cálculo + memória) e `delegar_redacao` (redator de texto longo), cada um com o mesmo loop de auto-correção do núcleo.
 - **Multiagente (orquestrador + especialistas + avaliador)** — pergunta com domínio reconhecido (programação, pesquisa, escrita, obsidian, memória) é dividida pelo **`no_orquestrador`** (classificador por regras, zero LLM) e executada por **3 especialistas em paralelo** (cada um com pool de ferramentas reduzida), consolidada pelo `no_integrador` e **avaliada por um LLM crítico** com veredito estruturado; reprovado → reexecução (até `max_tentativas`); aprovado → resposta consolidada. Sem domínio → fluxo clássico byte-idêntico. Detalhes e web-doc no `docs/multiagente.md`; auditoria das orquestrações em `config/dados/orquestracoes.jsonl`.
 - **Gateway Webhook HTTP** (`pixi run gateway`) — expõe o mesmo grafo via REST (POST `/mensagem`, GET `/healthz`), pronto para bots/automação.
+- **Web UI em streaming** (`pixi run webui`, porta **8788**) — front vanilla (Bun + SSE + ponte Python JSONL com `astream_events`): chat com **markdown avançado** (KaTeX `$..$`, mermaid, tabelas), respostas com **pensamento em tempo real**, feed de atividade (ferramentas, diffs, comandos, subagentes, vereditos), árvore do grafo, métricas, wire cru, widgets (relógio, tokens, ping da ponte), **botão ⏹ interromper** e **janela de perguntas** para aprovar comandos — sandbox de escrita (`config/dados/artefatos/`), política de comandos com denylist destrutiva e redação de segredos. Detalhes em `docs/webui.md`.
 - **Cron interno (agendador)** — o agente agenda tarefas autônomas (`agendar`, `listar_agendamentos`, `cancelar_agendamento`); o daemon `pixi run agendador` executa os vencidos no grafo e notifica um webhook opcional (`AEGIS_AGENDADOR_CALLBACK_URL`).
 - **Recall de sessões anteriores** — ferramenta `pesquisar_sessoes` (paridade Hermes `session_search_tool`): descobrir por palavra-chave, rolar uma janela de mensagens e navegar por sessões recentes, tudo sobre as trajetórias já gravadas, sem custo de LLM.
 - **Lista de tarefas (todo)** — ferramenta `tarefas` (paridade Hermes `todo_tool`): decompõe tarefas complexas com status `pendente/executando/concluida/cancelada` e re-injeta as ativas após a compressão de contexto.
@@ -246,6 +247,25 @@ Uso:
 
 Exemplos completos e auto-documentados: `config/prompts_avancados/revisor-codigo.apf`
 e `config/prompts_avancados/pesquisa-profunda.apf`.
+
+## 🖥️ Web UI
+
+Uma interface web em streaming para o mesmo grafo (arquitetura
+**Browser ←SSE→ Bun (porta 8788) ←JSONL→ ponte Python `astream_events`**).
+
+```bash
+pixi run webui        # sobe o servidor em http://localhost:8788
+pixi run webui-test   # testes do front (bun test: server, ponte fake, markdown avançado)
+```
+
+- **Botão ⏹ interromper** — cancela o turno em execução na ponte (task cancelável; o stream fecha com `interrompido: true`, nunca erro).
+- **Janela de perguntas** — comandos fora da allowlist e marcáveis para confirmação (`confirmar: true`) abrem um card `❓ responder`; aprovar/recusar via `POST /api/autorizar`. Comandos destrutivos da denylist **sempre** recusados (motivo `politica`).
+- **Markdown avançado no chat** — KaTeX (`$..$`), diagramas mermaid (```` ```mermaid ````), tabelas e links — camada `webui/markdown2.ts` sobre o renderizador leve escape-first (o código nunca executa HTML bruto).
+- **Widgets** — relógio do host, tokens da sessão, ping da ponte, barra de status com o aviso de sandbox.
+- **Segurança** — a **raiz do projeto é somente leitura** para o agente (escrita só em `config/dados/artefatos/`); comandos passam pela política com auditoria em `config/dados/comandos.jsonl`; segredos do `.env` nunca chegam ao navegador (redação `_SEGREDO`).
+- **Abas técnicas** — métricas (tokens/duracão/tps), árvore do grafo, wire cru dos frames, config e histórico.
+
+Design completo do protocolo e das fases: `docs/webui.md`.
 
 ## 🧪 Testes
 

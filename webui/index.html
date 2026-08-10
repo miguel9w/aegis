@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Aegis Web UI</title>
 <script type="module" src="/app.js"></script>
+<link rel="stylesheet" href="/katex.css">
 <style>
   :root {
     --bg: #0b0e14; --painel: #11161f; --painel2: #161d29; --borda: #1e2632;
@@ -190,6 +191,81 @@
     main { grid-template-columns: 1fr; }
     .col-feed, .col-painel { display: none; }
   }
+
+  /* ------------------------------------------------- botão interromper */
+  .btn-interromper {
+    font-family: var(--mono); font-size: 12px; color: #ffd7d5;
+    background: #3a1d1b; border: 1px solid #6b2f2b; padding: 4px 10px;
+    border-radius: 20px; cursor: pointer;
+  }
+  .btn-interromper:hover { background: #4a2421; border-color: var(--erro); }
+
+  /* ------------------------------------------------- barra de status */
+  .barra-status {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 14px;
+    padding: 6px 16px; border-top: 1px solid var(--borda);
+    background: var(--painel); font-size: 11px; color: var(--fraca);
+  }
+  .aviso-sandbox {
+    font-family: var(--mono); color: #b9a36a; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .widgets { margin-left: auto; display: flex; gap: 12px; font-family: var(--mono); }
+  .widget { display: inline-flex; gap: 4px; align-items: center; color: var(--fraca); }
+  .ping-dead { color: var(--erro); } .ping-vivo { color: var(--ok); }
+
+  /* ------------------------------------------------- janela de perguntas */
+  .modal {
+    position: fixed; inset: 0; background: rgba(4, 6, 10, 0.72);
+    display: flex; align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal-caixa {
+    width: min(560px, 92vw); background: var(--painel2);
+    border: 1px solid var(--borda); border-radius: 10px; padding: 18px 20px;
+    box-shadow: 0 18px 60px rgba(0,0,0,0.5);
+  }
+  .modal-titulo { font-weight: 700; margin-bottom: 10px; color: var(--aviso); }
+  .modal-texto { font-size: 13px; color: var(--fraca); margin-bottom: 12px; }
+  .modal-comando {
+    font-family: var(--mono); font-size: 13px; background: #0c1017;
+    border: 1px solid var(--borda); border-radius: 6px; padding: 10px 12px;
+    white-space: pre-wrap; word-break: break-all; color: var(--texto); margin-bottom: 14px;
+  }
+  .modal-acoes { display: flex; gap: 10px; justify-content: flex-end; }
+  .btn-permitir, .btn-recusar {
+    font-family: var(--mono); font-size: 13px; padding: 7px 16px; border-radius: 6px;
+    cursor: pointer; border: 1px solid var(--borda); background: var(--painel);
+  }
+  .btn-permitir { color: var(--ok); border-color: #24463a; }
+  .btn-permitir:hover { background: #10231c; }
+  .btn-recusar { color: var(--erro); border-color: #4a2a28; }
+  .btn-recusar:hover { background: #231211; }
+
+  /* ------------------------------------------------- chips de segurança */
+  .chip {
+    font-family: var(--mono); font-size: 10px; padding: 1px 7px; border-radius: 10px;
+    margin-left: 8px; vertical-align: 1px; border: 1px solid var(--borda);
+  }
+  .chip-sandbox { color: #9db8ff; border-color: #2b3f61; }
+  .chip-politica { color: #b9a36a; border-color: #4a3f22; }
+  .chip-aprovado { color: var(--ok); border-color: #24463a; }
+  .modal-abrir-btn {
+    font-family: var(--mono); font-size: 11px; margin-top: 6px; padding: 3px 10px;
+    border-radius: 12px; cursor: pointer; color: var(--aviso);
+    background: #221d10; border: 1px solid #4a3f22;
+  }
+  .modal-abrir-btn:hover { background: #2e2614; }
+
+  /* markdown avançado: mermaid + tabelas */
+  .mermaid { margin: 12px 0; display: flex; justify-content: center; }
+  .resposta table {
+    border-collapse: collapse; margin: 10px 0; font-size: 13px;
+    background: var(--painel2); border: 1px solid var(--borda); border-radius: 6px;
+    min-width: 60%; width: fit-content;
+  }
+  .resposta th, .resposta td { border: 1px solid var(--borda); padding: 5px 12px; text-align: left; }
+  .resposta th { background: var(--painel); color: var(--accent); font-weight: 600; }
+  .resposta a { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -197,6 +273,7 @@
     <div class="logo">Aegis<b>&lt;/&gt;</b> <span>web console</span></div>
     <span id="thread-badge">thread: default</span>
     <div class="flex">
+      <button id="interromper-btn" class="btn-interromper oculto" title="interromper o turno em execução">⏹ interromper</button>
       <span id="status">pronto</span>
       <span class="ping-dot" title="SSE ativo"></span>
     </div>
@@ -240,5 +317,28 @@
       <div class="painel-corpo" id="painel-historico"><div id="historico-corpo" style="font-family:var(--mono);font-size:12px;color:var(--fraca)">carregando…</div></div>
     </section>
   </main>
+  <footer class="barra-status">
+    <span class="aviso-sandbox" title="o Aegis só escreve em config/dados/artefatos/ (sandbox); comandos passam pela política; a raiz do projeto é somente leitura">
+      🧰 <b>segurança:</b> escrita em sandbox (artefatos) · comandos com política + confirmação · destrutivos bloqueados
+    </span>
+    <span class="widgets">
+      <span class="widget" title="relógio do host"><span id="w-relogio">--:--:--</span></span>
+      <span class="widget" title="tokens desta sessão"><span id="w-tokens">0</span> tok</span>
+      <span class="widget" title="ponte python (LangGraph)"><span id="w-ping" class="ping-dead">●</span> ponte</span>
+    </span>
+  </footer>
+
+  <!-- janela de perguntas: o agente pede aprovação para mexer no sistema -->
+  <div id="modal-perguntas" class="modal oculto">
+    <div class="modal-caixa">
+      <div class="modal-titulo">❓ Pergunta do agente</div>
+      <p class="modal-texto">O Aegis quer executar um comando <b>fora da allowlist</b> (escrita). Você aprova?</p>
+      <pre id="modal-comando" class="modal-comando"></pre>
+      <div class="modal-acoes">
+        <button id="modal-permitir" class="btn-permitir">✓ Permitir</button>
+        <button id="modal-recusar" class="btn-recusar">✗ Recusar</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

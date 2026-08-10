@@ -27,6 +27,7 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
+from ..autorizacoes import comando_aprovado
 from ..config import config, RAIZ
 from ..config_json import carregar_config_json as _cfg_json
 
@@ -312,9 +313,16 @@ def executar_comando(comando: str, confirmar: bool = False) -> str:
                            codigo=None, duracao_ms=0, motivo=motivo)
         return f"erro: {motivo}"
     if motivo is not None and not confirmar:
-        _registrar_comando(comando, confirmado=False, status="exige_confirmacao",
-                           codigo=None, duracao_ms=0, motivo=motivo)
-        return f"erro: {motivo} — refaça a chamada com confirmar=True"
+        if comando_aprovado(comando):
+            # aprovado pela janela de perguntas da web UI (sessão atual):
+            # segue como se confirmado — a denylist já foi verificada acima
+            confirmado_efetivo = True
+        else:
+            _registrar_comando(comando, confirmado=False, status="exige_confirmacao",
+                               codigo=None, duracao_ms=0, motivo=motivo)
+            return f"erro: recusado — {motivo} — refaça a chamada com confirmar=True"
+    else:
+        confirmado_efetivo = confirmar
     timeout = int(config.exec_timeout)
     cwd = str(config.exec_cwd or RAIZ)
     try:
@@ -330,17 +338,17 @@ def executar_comando(comando: str, confirmar: bool = False) -> str:
             saida = saida[:limite] + f"\n… ({len(saida)} caracteres, truncado)"
         status = "ok" if proc.returncode == 0 else "erro"
         duracao_ms = int((time.monotonic() - inicio) * 1000)
-        _registrar_comando(comando, confirmado=confirmar, status=status,
+        _registrar_comando(comando, confirmado=confirmado_efetivo, status=status,
                            codigo=proc.returncode, duracao_ms=duracao_ms)
         return f"código={proc.returncode} duração={duracao_ms}ms\n{saida}"
     except subprocess.TimeoutExpired:
         duracao_ms = int((time.monotonic() - inicio) * 1000)
-        _registrar_comando(comando, confirmado=confirmar, status="timeout",
+        _registrar_comando(comando, confirmado=confirmado_efetivo, status="timeout",
                            codigo=None, duracao_ms=duracao_ms)
         return f"erro: tempo esgotado após {timeout}s"
     except Exception as exc:  # noqa: BLE001 — nunca derruba a ferramenta
         duracao_ms = int((time.monotonic() - inicio) * 1000)
-        _registrar_comando(comando, confirmado=confirmar, status="erro",
+        _registrar_comando(comando, confirmado=confirmado_efetivo, status="erro",
                            codigo=None, duracao_ms=duracao_ms, motivo=str(exc))
         return f"erro ao executar comando: {exc}"
 

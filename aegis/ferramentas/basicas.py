@@ -160,7 +160,7 @@ _executor = ExecutorLocal()
 
 
 @tool
-def executar_comando(comando: str, timeout: int = 30) -> str:
+def comando_sandbox(comando: str, timeout: int = 30) -> str:
     """Executa um comando shell em um sandbox isolado local com timeout.
 
     Use para scripts, automação e operações de arquivo. Retorna saída,
@@ -182,4 +182,4 @@ def executar_comando(comando: str, timeout: int = 30) -> str:
 # ---------------------------------------------------------------------
 
 def ferramentas_basicas() -> list:
-    return [calculadora, hora_atual, buscar_web, executar_comando]
+    return [calculadora, hora_atual, buscar_web, comando_sandbox]

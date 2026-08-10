@@ -6,6 +6,7 @@
  */
 import { renderDiff } from "./diff.ts";
 import { renderMarkdown } from "./markdown.ts";
+import { executarMermaid, renderarMarkdownAvancado } from "./markdown2.ts";
 
 type Frame = { job_id?: string; kind: string; [k: string]: unknown };
 
@@ -19,6 +20,14 @@ const inputEl = byId<HTMLTextAreaElement>("entrada");
 const enviarBtn = byId<HTMLButtonElement>("enviar");
 const threadBadgeEl = byId<HTMLSpanElement>("thread-badge");
 const statusEl = byId<HTMLSpanElement>("status");
+const interromperBtn = byId<HTMLButtonElement>("interromper-btn");
+const modalEl = byId<HTMLDivElement>("modal-perguntas");
+const modalComandoEl = byId<HTMLPreElement>("modal-comando");
+const modalPermitirBtn = byId<HTMLButtonElement>("modal-permitir");
+const modalRecusarBtn = byId<HTMLButtonElement>("modal-recusar");
+const wRelogioEl = byId<HTMLSpanElement>("w-relogio");
+const wTokensEl = byId<HTMLSpanElement>("w-tokens");
+const wPingEl = byId<HTMLSpanElement>("w-ping");
 const tabBotoes = document.querySelectorAll<HTMLButtonElement>("[data-aba]");
 const canvasSpark = byId<HTMLCanvasElement>("spark");
 const sparkCtx = canvasSpark.getContext("2d")!;
@@ -27,6 +36,9 @@ const sparkCtx = canvasSpark.getContext("2d")!;
 const estado = {
   threadId: "default",
   jobAtivo: false,
+  jobIdAtual: "",
+  ultimaMensagem: "",
+  tokensSessao: 0,
   torneio: 0 as number,
   turnoAtual: null as null | {
     resp: HTMLDivElement; thinking: HTMLDivElement; thinkingWrap: HTMLDivElement;
@@ -35,6 +47,7 @@ const estado = {
   tokens: 0,
   metricas: [] as Array<[number, number, number]>, // [tokens, duração, tps]
   textosTurno: [] as string[],
+  esAtual: null as EventSource | null,
 };
 
 // ------------------------------------------------------------------- utilitários
@@ -106,6 +119,67 @@ function fecharTurno() {
   }
 }
 
+/** Encerra o turno (fim/erro/interrompido) e devolve a UI ao estado pronto. */
+function finalizarTurno(rotulo: string) {
+  fecharTurno();
+  estado.jobAtivo = false;
+  estado.jobIdAtual = "";
+  interromperBtn.classList.add("oculto");
+  statusEl.textContent = rotulo;
+  enviarBtn.disabled = false;
+  inputEl.disabled = false;
+}
+
+// ------------------------------------------------------------------- interromper
+async function interromper() {
+  if (!estado.jobAtivo || !estado.jobIdAtual) return;
+  interromperBtn.disabled = true;
+  statusEl.textContent = "interrompendo…";
+  try {
+    await fetch("/api/interromper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_id: estado.jobIdAtual }),
+    });
+  } catch { /* ponte offline — o SSE morre sozinho; segue o baile */ }
+  estado.esAtual?.close();
+  estado.esAtual = null;
+  // o SSE encerra quando a ponte emitir `fim` interrompido; se já caiu, fecha local:
+  const t = estado.turnoAtual;
+  if (t && t.acumulado === "" && estado.jobAtivo) {
+    t.acumulado = "(interrompido)";
+    t.resp.innerHTML = renderMarkdown(t.acumulado);
+  }
+  finalizarTurno("interrompido");
+}
+
+// ------------------------------------------------------------------- janela de perguntas
+function abrirModalPergunta(comando: string) {
+  modalComandoEl.textContent = comando;
+  modalEl.classList.remove("oculto");
+}
+
+function fecharModalPergunta() {
+  modalEl.classList.add("oculto");
+}
+
+async function responderPermitir() {
+  const comando = modalComandoEl.textContent ?? "";
+  fecharModalPergunta();
+  try {
+    await fetch("/api/autorizar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ comando }),
+    });
+  } catch { /* falha silenciosa — o próximo turno re-tenta (agora com o botão) */ }
+  // reenvia o turno que pediu aprovação — agora o comando executa na sessão
+  if (estado.ultimaMensagem && !estado.jobAtivo) {
+    inputEl.value = estado.ultimaMensagem;
+    iniciarTurno();
+  }
+}
+
 // ------------------------------------------------------------------- feed
 function itemFeed(icone: string, titulo: string, corpo?: string, classe = "") {
   const d = document.createElement("div");
@@ -132,7 +206,7 @@ function escapeHtml(s: string) {
 function cardArquivo(f: Frame) {
   const caminho = String(f.caminho ?? "?");
   const status = f.status === "ok" ? "✓" : "✗";
-  const d = itemFeed("📄", `<span class="arquivo-caminho">${escapeHtml(caminho)}</span> ${status}`, undefined, f.status === "ok" ? "ok" : "erro");
+  const d = itemFeed("📄", `<span class="arquivo-caminho">${escapeHtml(caminho)}</span> ${status}<span class="chip chip-sandbox">sandbox</span>`, undefined, f.status === "ok" ? "ok" : "erro");
   const det = d.querySelector(".feed-detalhe") as HTMLDivElement;
   det.innerHTML = `<details><summary>diff (${String(f.acao)})</summary>${renderDiff(String(f.diff ?? ""))}</details>`;
 }
@@ -140,9 +214,22 @@ function cardArquivo(f: Frame) {
 function cardComando(f: Frame) {
   const statusTxt = f.status === "ok" ? "✓" : f.status === "recusado" ? "🛑 recusado" : "✗";
   const confirmado = f.confirmado ? " [confirmado]" : "";
-  const d = itemFeed("❯", `<code>${escapeHtml(String(f.cmd ?? ""))}</code> <span class="tool-estado ${f.status === "ok" ? "feito" : "erro"}">${statusTxt}${confirmado}</span>`);
+  let chip = "";
+  if (f.status === "recusado" && f.motivo === "politica") chip = '<span class="chip chip-politica">bloqueado</span>';
+  else if (f.motivo === "confirmacao" || /confirmar=true/i.test(String(f.resumo ?? ""))) chip = '<span class="chip chip-politica">requer aprovação</span>';
+  else chip = '<span class="chip chip-aprovado">política ok</span>';
+  const d = itemFeed("❯", `<code>${escapeHtml(String(f.cmd ?? ""))}</code> <span class="tool-estado ${f.status === "ok" ? "feito" : "erro"}">${statusTxt}${confirmado}</span>${chip}`);
   const det = d.querySelector(".feed-detalhe") as HTMLDivElement;
   det.textContent = `${f.resumo ?? ""}${f.duracao_ms ? ` — ${tempoAgo(Number(f.duracao_ms))}` : ""}`;
+  // janela de perguntas: comando fora da allowlist pode ser aprovado pelo usuário
+  if (f.status === "recusado" && f.motivo === "confirmacao" && f.cmd) {
+    d.classList.add("erro");
+    const acao = document.createElement("button");
+    acao.className = "modal-abrir-btn";
+    acao.textContent = "❓ responder";
+    acao.addEventListener("click", () => abrirModalPergunta(String(f.cmd)));
+    d.querySelector(".feed-corpo")!.appendChild(acao);
+  }
 }
 
 function cardSubgrafo(f: Frame) {
@@ -252,43 +339,49 @@ function aoFrame(f: Frame) {
       renderMetricas([Number(f.tokens ?? 0), Number(f.duracao_s ?? 0), Number(f.tps ?? 0)]);
       estado.metricas.push([Number(f.tokens), Number(f.duracao_s), Number(f.tps)]);
       if (estado.metricas.length > 60) estado.metricas.shift();
+      estado.tokensSessao += Number(f.tokens ?? 0);
+      wTokensEl.textContent = String(estado.tokensSessao);
       break;
     }
     case "fim": {
-      if (t && !t.acumulado) {
-        t.acumulado = String(f.texto ?? "");
-        t.resp.innerHTML = renderMarkdown(t.acumulado);
+      if (t) {
+        const textoFinal = t.acumulado || String(f.texto ?? "");
+        if (textoFinal) {
+          t.acumulado = textoFinal;
+          t.resp.innerHTML = renderarMarkdownAvancado(textoFinal);
+          void executarMermaid(t.resp);
+        }
       }
-      fecharTurno();
-      estado.jobAtivo = false;
-      statusEl.textContent = "pronto";
-      enviarBtn.disabled = false;
-      inputEl.disabled = false;
+      finalizarTurno(f.interrompido ? "interrompido" : "pronto");
       break;
     }
     case "erro": {
       itemFeed("💥", "erro no agente", escapeHtml(String(f.mensagem ?? f.tipo ?? "")), "erro");
-      fecharTurno();
-      estado.jobAtivo = false;
-      statusEl.textContent = "erro";
-      enviarBtn.disabled = false;
-      inputEl.disabled = false;
+      const ta = estado.turnoAtual;
+      if (ta && ta.acumulado) {
+        ta.resp.innerHTML = renderarMarkdownAvancado(ta.acumulado);
+        void executarMermaid(ta.resp);
+      }
+      finalizarTurno("erro");
       break;
     }
   }
 }
 
 // ------------------------------------------------------------------- turno
-async function iniciarTurno() {
-  const texto = inputEl.value.trim();
+async function iniciarTurno(textoForcado?: string) {
+  const texto = (textoForcado ?? inputEl.value).trim();
   if (!texto || estado.jobAtivo) return;
   inputEl.value = "";
   adicionarUsuario(texto);
   abrirTurnoAegis();
   estado.jobAtivo = true;
+  estado.ultimaMensagem = texto;
   estado.toolsAbertos = new Map();
   enviarBtn.disabled = true;
   inputEl.disabled = true;
+  interromperBtn.disabled = false;
+  interromperBtn.classList.remove("oculto");
   statusEl.textContent = "agindo…";
   try {
     const res = await fetch("/api/mensagem", {
@@ -298,9 +391,11 @@ async function iniciarTurno() {
     });
     const { job_id: jobId } = (await res.json()) as { job_id?: string };
     if (!jobId) throw new Error("sem job_id");
+    estado.jobIdAtual = jobId;
     const es = new EventSource(`/api/stream?job_id=${jobId}`);
+    estado.esAtual = es;
     es.onmessage = (ev) => { try { aoFrame(JSON.parse(ev.data) as Frame); } catch { /* frame corrompido */ } };
-    es.onerror = () => es.close(); // o servidor encerra no fim/erro
+    es.onerror = () => { es.close(); if (estado.esAtual === es) estado.esAtual = null; };
   } catch (err) {
     aoFrame({ kind: "erro", mensagem: String(err) });
   }
@@ -345,16 +440,44 @@ async function carregarHistorico() {
 }
 
 // ------------------------------------------------------------------- boot
+function iniciarWidgets() {
+  // relógio do host
+  const tickRelogio = () => {
+    const agora = new Date();
+    wRelogioEl.textContent = agora.toLocaleTimeString("pt-BR", { hour12: false });
+  };
+  tickRelogio();
+  setInterval(tickRelogio, 1000);
+  // ping da ponte python (healthz)
+  const tickPing = async () => {
+    try {
+      const res = await fetch("/api/healthz");
+      const h = (await res.json()) as { ponte?: string };
+      wPingEl.textContent = "●";
+      wPingEl.className = h.ponte === "ok" ? "ping-vivo" : "ping-dead";
+      wPingEl.title = h.ponte === "ok" ? "ponte ok" : "ponte morta (o servidor reinicia sozinho)";
+    } catch {
+      wPingEl.className = "ping-dead";
+    }
+  };
+  tickPing();
+  setInterval(tickPing, 10_000);
+}
+
 function iniciar() {
   tabBotoes.forEach((b) => b.addEventListener("click", () => ativarAba(b.dataset.aba!)));
-  enviarBtn.addEventListener("click", iniciarTurno);
+  enviarBtn.addEventListener("click", () => iniciarTurno());
   inputEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); iniciarTurno(); }
   });
+  interromperBtn.addEventListener("click", interromper);
+  modalPermitirBtn.addEventListener("click", responderPermitir);
+  modalRecusarBtn.addEventListener("click", fecharModalPergunta);
   threadBadgeEl.textContent = `thread: ${estado.threadId}`;
   ativarAba("metricas");
   carregarConfig();
   carregarHistorico();
+  iniciarWidgets();
   inputEl.focus();
 }
 

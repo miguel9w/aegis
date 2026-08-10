@@ -16,6 +16,7 @@ export interface Frame {
 
 export interface OpcoesPonte {
   comando?: string[];
+  env?: Record<string, string>;
   aoFechar?: (codigo: number | null, sinal: string | null) => void;
 }
 
@@ -43,7 +44,7 @@ export class Ponte {
       stdout: "pipe",
       stderr: "pipe",
       stdin: "pipe",
-      env: { ...process.env as Record<string, string> },
+      env: this.opcoes.env ?? (process.env as Record<string, string>),
     });
     this.proc.exited.then((codigo) => {
       this.opcoes.aoFechar?.(codigo, null);

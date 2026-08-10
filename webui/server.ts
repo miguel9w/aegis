@@ -97,7 +97,8 @@ export function criarServidor(opcoes: OpcoesServidor = {}) {
       }
 
       // estáticos do front (dist foi gerado por bun build no dev/boot)
-      if (caminho === "/app.js" || caminho === "/style.css" || caminho.startsWith("/dist/")) {
+      if (caminho === "/app.js" || caminho === "/style.css" || caminho.startsWith("/dist/")
+        || /\.(css|js|svg|woff2?|map)$/.test(caminho)) {
         const relativo = caminho === "/app.js" ? "public/dist/app.js"
           : caminho === "/style.css" ? "style.css" : caminho.slice(1);
         const arquivo = Bun.file(`${dir}${relativo}`);
@@ -142,6 +143,34 @@ export function criarServidor(opcoes: OpcoesServidor = {}) {
         jobs.set(jobId, { frames: [], escritores: [], fechado: false });
         ponte.enviar({ cmd: "mensagem", job_id: jobId, texto, thread_id: threadId });
         return Response.json({ job_id: jobId, thread_id: threadId }, { status: 202 });
+      }
+
+      if (caminho === "/api/interromper" && req.method === "POST") {
+        const corpo = await req.json().catch(() => null);
+        const jobId = typeof corpo?.job_id === "string" ? corpo.job_id : "";
+        const job = jobId ? jobs.get(jobId) : undefined;
+        if (!job || job.fechado) {
+          return Response.json(
+            { ok: false, erro: "job inexistente ou já concluído" },
+            { status: 404 },
+          );
+        }
+        // cancela na ponte; o turno encerra quando ela emitir `fim` com
+        // interrompido=true (o SSE então fecha sozinho)
+        const resp = await ponte.comandar({ cmd: "interromper", job_id: jobId }, timeoutComando);
+        return Response.json({ ok: resp?.ok === true, job_id: jobId });
+      }
+
+      if (caminho === "/api/autorizar" && req.method === "POST") {
+        const corpo = await req.json().catch(() => null);
+        const comando = typeof corpo?.comando === "string" ? corpo.comando.trim() : "";
+        if (!comando) {
+          return Response.json({ ok: false, erro: "campo 'comando' obrigatório" },
+            { status: 400 });
+        }
+        // aprovado na sessão — o turno reenviado executa sem confirmar=True
+        const resp = await ponte.comandar({ cmd: "autorizar", comando }, timeoutComando);
+        return Response.json({ ok: resp?.ok === true, comando });
       }
 
       if (caminho === "/api/stream") {

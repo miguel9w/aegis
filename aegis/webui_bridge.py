@@ -22,6 +22,7 @@ import asyncio
 import json
 import re
 import sys
+import threading
 import time
 from typing import Any, AsyncIterator
 
@@ -169,15 +170,17 @@ def _processar_evento(evento: dict, est: dict) -> list[dict]:
                 "status": "ok" if not texto_saida.startswith("erro") else "erro",
             })
         elif nome == "executar_comando":
-            status = "ok"
-            if "recusado" in texto_saida:
-                status = "recusado"
+            status, motivo = "ok", ""
+            if "recusado pela política" in texto_saida:
+                status, motivo = "recusado", "politica"  # denylist — nunca autorizável
+            elif "recusado" in texto_saida and "confirmar=True" in texto_saida:
+                status, motivo = "recusado", "confirmacao"  # janela de perguntas
             elif texto_saida.startswith("erro") or "nan" in texto_saida.lower():
                 status = "erro"
             m = re.search(r"duração=(\d+)ms", texto_saida)
             frames.append({
                 "kind": "comando", "cmd": args.get("comando", ""),
-                "status": status,
+                "status": status, "motivo": motivo,
                 "duracao_ms": int(m.group(1)) if m else 0,
                 "resumo": texto_saida.splitlines()[0] if texto_saida else "",
                 "confirmado": bool(args.get("confirmar")),
@@ -230,11 +233,16 @@ async def executar_job(
         "mensagens": [HumanMessage(texto)],
         "metadados_sessao": {"thread_id": thread_id},
     }
-    falha: Exception | None = None
+    falha: Exception | str | None = None
     try:
         async for evento in app.astream_events(entrada, config=configurar, version="v2"):
             for f in _processar_evento(evento, est):
                 yield frame(**f)
+    except asyncio.CancelledError:
+        # interrompido pelo usuário: silêncio total do gerador (o wrapper
+        # `_rodar_job` emite o frame `fim` com interrompido=True)
+        falha = "interrompido"
+        raise
     except Exception as exc:  # noqa: BLE001 — erro vira frame, nunca quebra a ponte
         falha = exc
         yield frame(kind="erro", tipo=type(exc).__name__, mensagem=str(exc)[:1000])
@@ -301,6 +309,9 @@ def processar_comando(cmd: dict, app: Any = None) -> str:
     acao = cmd.get("cmd")
     if acao == "ping":
         return json.dumps({"cmd": "pong"})
+    if acao == "interromper":
+        # no-op no modo síncrono (o cancelamento real é do _main_loop)
+        return json.dumps({"cmd": "interromper", "ok": True})
     if acao == "estado":
         return json.dumps({"cmd": "estado", "dados": snapshot_estado()}, ensure_ascii=False)
     if acao == "historico":
@@ -326,14 +337,58 @@ def _emitir_job(app: Any, cmd: dict) -> None:
     asyncio.run(rodar())
 
 
+async def _rodar_job(app: Any, cmd: dict) -> None:
+    """Roda um turno como task independente (cancelável pelo comando
+    `interromper`). O cancel emite `fim` com interrompido=True — nunca um erro."""
+    job_id = str(cmd.get("job_id") or "j-0")
+    texto = str(cmd.get("texto") or "")
+    thread_id = str(cmd.get("thread_id") or config.thread_id)
+    try:
+        async for f in executar_job(app, texto, thread_id, job_id):
+            print(json.dumps(f, ensure_ascii=False), flush=True)
+    except asyncio.CancelledError:
+        print(json.dumps({
+            "job_id": job_id, "kind": "fim",
+            "texto": "(turno interrompido pelo usuário)",
+            "estado_final": None, "interrompido": True,
+        }, ensure_ascii=False), flush=True)
+    except Exception as exc:  # noqa: BLE001 — nunca derruba a ponte
+        print(json.dumps({"job_id": job_id, "kind": "erro",
+                          "tipo": type(exc).__name__, "mensagem": str(exc)[:1000]},
+                         ensure_ascii=False), flush=True)
+
+
 async def _main_loop() -> None:
     """Loop principal da ponte — UM event loop para montagem + todos os jobs
-    (o AsyncSqliteSaver prende conexões/locks ao loop; dois loops = RuntimeError)."""
+    (o AsyncSqliteSaver prende conexões/locks ao loop; dois loops = RuntimeError).
+    O stdin é lido de forma assíncrona (add_reader) para que o comando
+    `interromper` chegue enquanto um turno ainda roda."""
     app, _ = await _montar_app_async(config)
-    sys.stderr.write(
-        f"[ponte] Aegis bridge pronta — modelo {config.modelo}\n")
+    sys.stderr.write(f"[ponte] Aegis bridge pronta — modelo {config.modelo}\n")
     sys.stderr.flush()
-    for linha in sys.stdin:
+    fila: asyncio.Queue[str | None] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def _push() -> None:
+        linha = sys.stdin.readline()
+        fila.put_nowait(linha if linha else None)
+
+    try:
+        loop.add_reader(sys.stdin.fileno(), _push)
+    except Exception:  # noqa: BLE001 — stdin sem fileno (testes/StringIO) → thread
+        def _alimentar() -> None:
+            for l in sys.stdin:
+                fila.put_nowait(l)
+            fila.put_nowait(None)
+
+        threading.Thread(target=_alimentar, daemon=True).start()
+    tarefa: asyncio.Task[None] | None = None
+    while True:
+        linha = await fila.get()
+        if linha is None:
+            if tarefa is not None and not tarefa.done():
+                tarefa.cancel()
+            break
         linha = linha.strip()
         if not linha:
             continue
@@ -357,16 +412,21 @@ async def _main_loop() -> None:
                               "threads": await listar_historico(app, limite)},
                              ensure_ascii=False), flush=True)
         elif acao == "mensagem":
-            job_id = str(cmd.get("job_id") or "j-0")
-            texto = str(cmd.get("texto") or "")
-            thread_id = str(cmd.get("thread_id") or config.thread_id)
-            try:
-                async for f in executar_job(app, texto, thread_id, job_id):
-                    print(json.dumps(f, ensure_ascii=False), flush=True)
-            except Exception as exc:  # noqa: BLE001 — nunca derruba a ponte
-                print(json.dumps({"job_id": job_id, "kind": "erro",
-                                  "tipo": type(exc).__name__, "mensagem": str(exc)[:1000]},
+            if tarefa is not None and not tarefa.done():
+                print(json.dumps({"cmd": "mensagem",
+                                  "erro": "ocupado: outro turno em execução"},
                                  ensure_ascii=False), flush=True)
+                continue
+            tarefa = asyncio.create_task(_rodar_job(app, cmd))
+        elif acao == "interromper":
+            if tarefa is not None and not tarefa.done():
+                tarefa.cancel()
+            print('{"cmd": "interromper", "ok": true}', flush=True)
+        elif acao == "autorizar":
+            from .autorizacoes import aprovar_comando
+            aprovado = aprovar_comando(command := str(cmd.get("comando") or ""))
+            print(json.dumps({"cmd": "autorizar", "ok": aprovado, "comando": command},
+                             ensure_ascii=False), flush=True)
         else:
             print(json.dumps({"erro": f"comando desconhecido: {acao!r}"},
                              ensure_ascii=False), flush=True)

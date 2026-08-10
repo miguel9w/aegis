@@ -7,7 +7,7 @@ import pytest
 from aegis.ferramentas.basicas import (
     _avaliar_ast,
     calculadora,
-    executar_comando,
+    comando_sandbox,
     hora_atual,
 )
 
@@ -71,18 +71,18 @@ def test_hora_atual_fuso_invalido():
 # ---------------------------------------------------------------------
 
 def test_executar_comando_sucesso():
-    saida = executar_comando.invoke({"comando": "echo ola-aegis"})
+    saida = comando_sandbox.invoke({"comando": "echo ola-aegis"})
     assert "ola-aegis" in saida
     assert "código=0" in saida
 
 
 def test_executar_comando_falha():
-    saida = executar_comando.invoke({"comando": "comando_que_nao_existe_zzz"})
+    saida = comando_sandbox.invoke({"comando": "comando_que_nao_existe_zzz"})
     assert saida.startswith("ERRO_FERRAMENTA:")
 
 
 def test_executar_comando_timeout():
-    saida = executar_comando.invoke({"comando": "sleep 5", "timeout": 1})
+    saida = comando_sandbox.invoke({"comando": "sleep 5", "timeout": 1})
     assert "tempo esgotado" in saida
 
 

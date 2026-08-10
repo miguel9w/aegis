@@ -110,3 +110,35 @@ def test_auditoria_registra_recusa(tmp_path, monkeypatch):
     linha = json.loads(log.read_text().strip().splitlines()[0])
     assert linha["status"] == "recusado"
     assert linha["sha256"]  # hash para rastreio sem expor o comando em logs
+
+
+def test_aprovado_pela_janela_de_perguntas_executa_sem_confirmar(tmp_path, monkeypatch):
+    """O comando aprovado pela web UI (autorizacoes) roda sem confirmar=True."""
+    from aegis.autorizacoes import aprovar_comando, limpar
+    _montar(tmp_path, monkeypatch)
+    limpar()
+    try:
+        # primeiro: recusado (sem confirmação e sem aprovação)
+        saida = executar_comando.invoke({"comando": "touch marcador.txt"})
+        assert "confirmar=True" in saida
+        assert not (tmp_path / "marcador.txt").exists()
+        # usuário aprova na janela de perguntas → turno reenviado → executa
+        assert aprovar_comando("touch marcador.txt")
+        saida2 = executar_comando.invoke({"comando": "touch marcador.txt"})
+        assert "código=0" in saida2
+        assert (tmp_path / "marcador.txt").exists()
+    finally:
+        limpar()
+
+
+def test_denylist_recusa_mesmo_aprovado(tmp_path, monkeypatch):
+    """Aprovação NÃO contorna a denylist — destrutivos continuam recusados."""
+    from aegis.autorizacoes import aprovar_comando, limpar
+    _montar(tmp_path, monkeypatch)
+    limpar()
+    try:
+        aprovar_comando("rm -rf /")
+        saida = executar_comando.invoke({"comando": "rm -rf /", "confirmar": True})
+        assert "recusado" in saida
+    finally:
+        limpar()

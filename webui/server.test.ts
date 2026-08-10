@@ -92,3 +92,82 @@ describe("W4 — fila de jobs e SSE", () => {
     expect(corpo.threads.length).toBeGreaterThan(0);
   });
 });
+
+describe("W5b — interromper e autorizar", () => {
+  test("interromper job inexistente → 404", async () => {
+    const res = await fetch(`${base}/api/interromper`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_id: "j-inexistente" }),
+    });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { ok: boolean }).ok).toBe(false);
+  });
+
+  test("interromper cancela turno em andamento (fake lento) e o SSE fecha com fim interrompido", async () => {
+    // ponte fake LENTA (40ms/frame) + servidor próprio, para dar tempo de cancelar
+    const ponteLenta = new Ponte({
+      comando: [process.env.BUN_BIN ?? "bun", "webui/fixtures/bridge_fake.mjs"],
+      env: { ...process.env, FAKE_DELAY_MS: "40" },
+    });
+    const servidorLento = criarServidor({ ponte: ponteLenta, porta: 0, intervaloPingMs: 500 });
+    const baseLenta = servidorLento.url.href.replace(/\/$/, "");
+    try {
+      const res = await fetch(`${baseLenta}/api/mensagem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texto: "conte devagar" }),
+      });
+      const { job_id: jobId } = (await res.json()) as { job_id: string };
+
+      // consome o SSE em paralelo
+      const sse = await fetch(`${baseLenta}/api/stream?job_id=${jobId}`);
+      const leitura = (async () => {
+        let corpo = "";
+        for await (const pedaco of sse.body!) {
+          corpo += new TextDecoder().decode(pedaco);
+        }
+        return corpo;
+      })();
+
+      // espera alguns frames saírem, então interrompe
+      await Bun.sleep(120);
+      const parar = await fetch(`${baseLenta}/api/interromper`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: jobId }),
+      });
+      expect(parar.status).toBe(200);
+      expect(((await parar.json()) as { ok: boolean }).ok).toBe(true);
+
+      const corpo = await leitura;
+      // saíram frames reais antes do cancelamento…
+      expect(corpo).toContain('"kind":"token"');
+      // …e o stream FECHOU com o fim interrompido (não com o fim normal)
+      expect(corpo).toContain('"interrompido":true');
+      expect(corpo).toContain('"kind":"fim"');
+    } finally {
+      servidorLento.stop();
+      ponteLenta.fechar();
+    }
+  });
+
+  test("POST /api/autorizar aprova comando na ponte", async () => {
+    const res = await fetch(`${base}/api/autorizar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ comando: "git status" }),
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
+  });
+
+  test("POST /api/autorizar sem comando → 400", async () => {
+    const res = await fetch(`${base}/api/autorizar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+  });
+});

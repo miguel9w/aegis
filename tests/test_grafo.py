@@ -62,8 +62,8 @@ def test_fluxo_ferramenta_sucesso(tmp_path):
 def test_fluxo_auto_correcao(tmp_path):
     modelo = ModeloFake()
     modelo.configurar([
-        # chamada inicial que falha (executar_comando com binário inexistente)
-        chamada_tool("executar_comando", {"comando": "comando_que_nao_existe_zzz", "timeout": 5},
+        # chamada inicial que falha (comando_sandbox com binário inexistente)
+        chamada_tool("comando_sandbox", {"comando": "comando_que_nao_existe_zzz", "timeout": 5},
                      id_chamada="call_1"),
         # reflexão decide reformular com uma ferramenta válida (calculadora)
         chamada_tool("calculadora", {"expressao": "10 - 4"}, id_chamada="call_2"),
@@ -82,7 +82,7 @@ def test_fluxo_auto_correcao(tmp_path):
     assert resultado["erros_ferramenta"], "erro de ferramenta não registrado"
     # as duas ferramentas executaram (a que falhou + a corrigida)
     nomes = {r["nome"] for r in resultado["registros_ferramentas"]}
-    # (executar_comando erro é contabilizado como ferramenta executada) + calculadora 10-4
+    # (comando_sandbox erro é contabilizado como ferramenta executada) + calculadora 10-4
     assert any(r["nome"] == "calculadora" and "6" in r["resultado"]
                for r in resultado["registros_ferramentas"])
     # resposta final
@@ -107,9 +107,9 @@ def test_auto_correcao_respeita_limite(tmp_path):
 def _modelo_sempre_erro():
     m = ModeloFake()
     m.configurar([
-        chamada_tool("executar_comando", {"comando": "cmdo_x_zzz"}),   # falha
-        chamada_tool("executar_comando", {"comando": "cmdo_x_zzz"}),   # reflexão tenta de novo (falha)
-        chamada_tool("executar_comando", {"comando": "cmdo_x_zzz"}),   # ...
+        chamada_tool("comando_sandbox", {"comando": "cmdo_x_zzz"}),   # falha
+        chamada_tool("comando_sandbox", {"comando": "cmdo_x_zzz"}),   # reflexão tenta de novo (falha)
+        chamada_tool("comando_sandbox", {"comando": "cmdo_x_zzz"}),   # ...
         AIMessage(content="Não consegui executar."),                    # desiste
     ])
     return m
