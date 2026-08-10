@@ -1,10 +1,16 @@
-# Planejamento do Núcleo — 7 fases de aprimoramento
+# Planejamento do Núcleo — 12 fases de aprimoramento
 
 > Documento de planejamento do cérebro do Aegis (grafo LangGraph).
 > Cada fase é um incremento semântico entregue com TDD + commit verde + prova
-> de runtime, no padrão do projeto. Ordens sugeridas: C1→C2→C3 constroem o
-> "ciclo de pensamento" (aprender → planejar → verificar); C4 e C5 blindam
-> memória e segurança; C6 controla custo; C7 expande execução (sandbox).
+> de runtime, no padrão do projeto.
+>
+> **Dois blocos:** as fases **C1–C7** constroem o raciocínio (ciclo de
+> pensamento: aprender → planejar → verificar; blindagem: memória e
+> segurança; controle: custo e execução). As fases **G1–G5** constroem a
+> DISCIPLINA DE ENTREGA (inspiradas no GSD — Git. Ship. Done.):
+> discuss → plan → execute → verify → ship, UAT conversacional, revisão por
+> pares, aprendizados estruturados e versionados, e pausa/retomada com
+> reversão segura.
 
 ---
 
@@ -226,7 +232,171 @@ com artefatos montados; auditoria registra `backend=docker`; `.env` inacessível
 
 ---
 
-## Backlog (ideias fora das 7 fases, para depois)
+# Fases G — disciplina de entrega (inspiradas no GSD)
+
+> O GSD (Git. Ship. Done.) disciplina o CICLO DE TRABALHO: discuss → plan →
+> execute → verify → ship, com milestones, UAT, revisão por pares,
+> aprendizados estruturados e reversão segura. Aplicado ao núcleo: o Aegis
+> não entrega só RESPOSTAS — entrega TRABALHO com garantias (critérios,
+> verificação, revisão, aprendizado versionado). Estas fases usam os nós das
+> fases C (plano de C2, verificação de C3, memória de C4) como alicerce.
+
+---
+
+## Fase G1 — Modo entrega: ciclo discuss → plan → execute → verify → ship
+
+**Objetivo:** tarefas de ENTREGA (código, artefato, documento) são conduzidas
+pelo ciclo completo GSD dentro do grafo — com fases explícitas, commits
+atômicos e ship verificável — em vez de o agente "responder" e encerrar.
+
+**Mudanças:**
+- Estado: `fluxo_trabalho: {fase, plano, criterios, ship}` + `commits_entrega: list`.
+- Nó `no_classificador_entrega` (regras, zero LLM — como o orquestrador):
+  tarefa pede entrega? (verbos "crie/implemente/refatore/gerencie…" +
+  contexto de repo) → ativa `fluxo_trabalho` e roteia o turno no ciclo.
+- Ciclo: `discuss` (pergunta o que falta — reusa a janela de perguntas da
+  ponte via evento `pergunta`) → `plan` (reusa `no_planejamento` de C2) →
+  `execute` (waves de ferramentas com commits atômicos; cada wave verifica
+  antes de seguir — reusa C3) → `verify` (goal-backward: cada critério de
+  aceite conferido contra estado real) → `ship` (PR/commit + resumo).
+- A cada troca de fase: `registros_ferramentas` ganha `fase` (auditoria
+  replayável) e a ponte emite evento novo `fase` (UI mostra a progressão).
+
+**Testes (determinísticos, ModeloFake scriptado):**
+- tarefa de entrega → ciclo completo com fases na ordem (invariante de ordem).
+- tarefa informativa → fluxo legado byte-idêntico (`fluxo_trabalho` ausente).
+- emissão de commit a cada wave; `verify` reprova → volta a `execute` (não ship).
+- `ship` só quando todos os critérios têm `verificado=true`.
+
+**Critério de aceite:** turno real "adiciona a ferramenta X com testes e push"
+roda o ciclo completo na web UI (badge de fase), termina em `ship` com o PR
+apontado e critérios verificados.
+
+**Nota:** é o agente usando o próprio GSD para trabalhar — a "fase de
+paridade" mais valiosa: transforma o Aegis de assistente em executor
+disciplinado (Git. Ship. Done.).
+
+---
+
+## Fase G2 — UAT conversacional com estado persistente
+
+**Objetivo:** validar entregas FEATURE POR FEATURE conversando com o usuário
+— com progresso persistente que sobrevive à troca de thread e alimenta gaps
+como próximos passos (inspirado no `UAT.md` do GSD).
+
+**Mudanças:**
+- Estado: `uat: list[{criterio, resultado, evidencia, gaps}]`.
+- Nó `no_uat_apos_ship` (após ship de G1): apresenta os critérios de aceite
+  um a um (pergunta "a entrada X produziu Y?" via janela/evento `pergunta`)
+  e registra resultado + evidência por critério.
+- `gaps` de critérios reprovados viram entradas de próximo ciclo (reusa o
+  roteamento de G1: `discuss` com os gaps como contexto).
+- Persistência: `uat` gravado no checkpointer + Store (namespace `uat/`) —
+  sobrevive a `/clear` e a troca de sessão (integra com C4).
+
+**Testes:**
+- entrega com 3 critérios → 3 perguntas, respostas registradas com evidência.
+- critério reprovado → gap no estado → próximo turno retoma com o gap.
+- thread nova consulta `uat` persistido sem rede.
+
+**Critério de aceite:** após uma entrega real, o usuário aprova/reprova cada
+critério na janela; reprovados entram como tarefas no próximo turno ("corrigir
+o critério 2").
+
+---
+
+## Fase G3 — Revisão por pares antes do ship (review checklist)
+
+**Objetivo:** nada vai a `ship` sem passar por revisão — checklist de normas
++ agente crítico (paridade `gsd-review`/`gsd-code-review`), consolidando os
+apontamentos antes da entrega.
+
+**Mudanças:**
+- Esteira: `no_verificar` (C3) aprovado → `no_revisar` (novo): monta o
+  "pacote de revisão" (plano, diff/artefatos, critérios) e submete a um
+  revisor — reusa o avaliador LLM do multiagente (veredito estruturado) ou
+  um subagente `delegar_revisao` dedicado.
+- Checklist fixo em `config/dados/limites.json` (segurança, sandbox de
+  escrita, testes, documentação, anti-alucinação) — o revisor responde por
+  item; `bloqueante` reprovado → volta a `execute` com o apontamento como
+  contexto (lição de C1).
+- UI: painel de revisão no feed (item → veredito → apontamento).
+
+**Testes:**
+- pacote com item bloqueante reprovado → rota de volta a `execute`.
+- todos aprovados → `ship` direto, sem perguntas ao usuário.
+- veredito estruturado no estado (`vereditos` reutilizado) e auditoria.
+
+**Critério de aceite:** entrega real passa por revisão com checklist e o
+resumo do ship cita os itens aprovados.
+
+**Nota:** ataca a alucinação do agente na hora da entrega (o revisor é segunda
+opinião obrigatória — mesma ideia do `gsd-review` de cruzar agentes).
+
+---
+
+## Fase G4 — Aprendizados estruturados e versionados + grafo de conhecimento
+
+**Objetivo:** elevar C1: além da Store, o agente grava aprendizados em 4
+categorias ESTRUTURADAS (decisões, lições, padrões, surpresas — igual ao
+`LEARNINGS.md` do GSD) em artefatos versionados, e mantém um grafo de
+conhecimento consultável (paridade `gsd-graphify`).
+
+**Mudanças:**
+- `no_reflexao_pos_turno` (C1) passa a classificar a saída em 4 categorias e
+  gravar DUPLICAMENTE: (a) Store (recall rápido, como hoje) e (b)
+  `docs/learnings/<sessao>.md` (versionado, acoplado ao repo) — via ferramenta
+  de escrita respeitando o sandbox (`artefatos_dir`) com permissão única.
+- Manutenção do grafo: entidades (decisão/lição/padrão/surpresa → fase/tool/
+  erro) extraídas por regras; tool `consultar_grafo` (navegação por relação,
+  sem LLM) — o RAG-lite vira o índice do grafo.
+- `docs/learnings/` entra no README (seção de aprendizados do projeto) com
+  link do histórico — contribuição pública de valor.
+
+**Testes:**
+- reflexão com ferramentas → documento versionado criado com as 4 categorias.
+- tool `consultar_grafo` navega decisão → padrão → lição (grafo isolado).
+- sem ferramentas → nenhum arquivo novo (regressão do C1).
+
+**Critério de aceite:** após 3 turnos reais, `docs/learnings/` tem pelo menos
+um arquivo com as 4 categorias e o grafo responde consultas de relação.
+
+---
+
+## Fase G5 — Pausa/retomada com handoff e reversão segura
+
+**Objetivo:** trabalho longo interrompido não se perde — o agente grava um
+HANDOFF (estado + contexto + próximos passos) e retoma com contexto completo;
+reversão segura da última entrega e replay para diagnóstico (paridade
+`gsd-pause-work`/`gsd-resume-work` + `gsd-undo` + `gsd-forensics`).
+
+**Mudanças:**
+- Interrupção (botão ⏹ da web, timeout de sessão ou usuário): nó
+  `no_handoff` grava no checkpointer + Store (namespace `handoffs/`):
+  `{fase_atual, fluxo_trabalho, plano, critérios, próximos_passos}`.
+- Retomada: `no_retomar` lê o handoff da thread, injeta "contexto de retomo"
+  no system (resumo da fase + próximos passos ordenados) e continua o ciclo
+  G1 do ponto exato.
+- Reversão segura: tool `reverter_entrega` (paridade undo) — commit/PR da
+  última entrega revertido SEM afetar o resto (sempre via git, auditado).
+- Replay: tool `replay_turno` (paridade forensics) — reproduz
+  `registros_ferramentas` de um turno gravado passo a passo (sem LLM) para
+  diagnóstico.
+
+**Testes:**
+- interromper no meio de G1 → handoff persistido → retomada continua da fase
+  certa (invariante: nenhum passo re-executado).
+- `reverter_entrega` restaura o estado git anterior (repo de teste).
+- `replay_turno` reprodutor com os mesmos inputs → mesmas saídas
+  (determinismo sem rede).
+
+**Critério de aceite:** entrega real interrompida na fase `execute` e retomada
+no dia seguinte termina em `ship` sem retrabalho; uma reversão de teste
+restaura o repo sem perda lateral.
+
+---
+
+## Backlog (ideias fora das 12 fases, para depois)
 
 1. **Subagentes sob demanda (catálogo)** — delegar código (roda testes no sandbox), delegar dados (pandas), delegar revisão (code review) — mesmo padrão de `delegar_pesquisa`/`delegar_redacao`.
 2. **Skills/playbooks do agente** — procedimentos reutilizáveis em `extensions/skills/` que o agente carrega e segue (memória procedimental versionada), com frontmatter.
@@ -237,9 +407,8 @@ com artefatos montados; auditoria registra `backend=docker`; `.env` inacessível
 7. **Avaliação de resposta (self-critique)** — rascunho final avaliado em critérios (correção, completude, evidência) com revisão em tarefas complexas — custo controlado.
 8. **Modo conservador estendido** — rebaixar estratégia automaticamente por tipo de provider (free vs pago), não só por flag.
 9. **Estatísticas de preço por modelo** — tabela por provider no `limites.json` (alimenta C6).
-10. **Replay de sessão** — reproduzir turno gravado passo a passo (paridade gsd-forensics).
-11. **Property tests do núcleo (hypothesis)** — invariantes globais: terminação, sandbox de escrita, auditoria, ordenação mensagens.
-12. **Prompt-injection na resposta** — sanitizar saída do modelo na UI (links disfarçados, falso markdown) além dos segredos.
+10. **Property tests do núcleo (hypothesis)** — invariantes globais: terminação, sandbox de escrita, auditoria, ordenação mensagens.
+11. **Prompt-injection na resposta** — sanitizar saída do modelo na UI (links disfarçados, falso markdown) além dos segredos.
 
 ---
 
@@ -248,12 +417,18 @@ com artefatos montados; auditoria registra `backend=docker`; `.env` inacessível
 ```
 C1 (aprender) ──► C2 (planejar) ──► C3 (verificar)        ciclo de pensamento
 C4 (memória estrutural)   ← usa lições de C1 e alimenta C2/C3
+G1 (modo entrega)         ← usa plano (C2) e verificação (C3)
+G2 (UAT conversacional)   ← após ship de G1
+G3 (revisão por pares)    ← entre verify (C3) e ship (G1)
 C5 (segurança)            ← independente; pode entrar em paralelo a C4
 C6 (orçamento)            ← usa `uso_tokens`; UI avisa
-C7 (sandbox remoto)       ← independe de C1–C6; bloqueia a fases de paridade
+C7 (sandbox remoto)       ← independe de C1–C6
+G4 (aprendizados + grafo) ← evolui C1
+G5 (pausa/retomada+undo)  ← usa handoff do checkpointer (C4) e o ciclo G1
 ```
 
-Sequência recomendada de execução: **C1 → C2 → C3 → C4 → C5 → C6 → C7**,
+Sequência recomendada de execução:
+**C1 → C2 → C3 → C4 → G1 → G2 → G3 → C5 → C6 → C7 → G4 → G5**,
 com C5 podendo ser antecipada (segurança primeiro) se o uso com conteúdo
 externo crescer antes do previsto.
 
