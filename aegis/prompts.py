@@ -165,6 +165,36 @@ def reflexao_pos_turno() -> str:
     )
 
 
+def planejar_tarefa() -> str:
+    """Prompt do nó de planejamento (C2): quebrar tarefa complexa em passos."""
+    return (
+        "Você é o planejador do Aegis. A tarefa do usuário exige execução "
+        "multi-passo com ferramentas. Quebre-a em um plano com no máximo 6 "
+        "passos ORDENADOS e executáveis, cada um com um objetivo verificável.\n"
+        "Regras:\n"
+        "1. Cada passo deve ser acionável com as ferramentas disponíveis "
+        "(comandos, arquivos, busca, calculadora).\n"
+        "2. Ordene por dependência: só planeje um passo que depende de outro "
+        "depois dele.\n"
+        "3. NÃO repita passos já concluídos; foque no caminho crítico.\n"
+        "Retorne APENAS um JSON válido: "
+        '{"plano": [{"passo": "ação", "objetivo": "verificável"}]}.'
+    )
+
+
+def replanejar_tarefa() -> str:
+    """Prompt do nó de replanejamento (C2): ajustar plano após falha de etapa."""
+    return (
+        "Você é o replanejador do Aegis. Uma etapa do plano falhou durante a "
+        "execução (erro de ferramenta abaixo). Ajuste o plano RESTANTE:\n"
+        "1. Mantenha os passos já concluídos fora do plano (já feitos).\n"
+        "2. O passo que falhou deve ser reformulado (atalho viável, abordagem "
+        "alternativa) ou removido se não for mais necessário.\n"
+        "3. Máximo 6 passos; retorne APENAS um JSON válido: "
+        '{"plano": [{"passo": "ação", "objetivo": "verificável"}]}.'
+    )
+
+
 def sistema_pesquisador() -> str:
     """Prompt do subagente PESQUISADOR (persona de pesquisa profunda)."""
     return (

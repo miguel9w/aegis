@@ -94,6 +94,14 @@ def montar_grafo(
         ultima = state["mensagens"][-1]
         if isinstance(ultima, AIMessage) and ultima.tool_calls:
             return "ferramentas"
+        # C2: a reflexão desistiu sem corrigir e o plano ainda tem pendências?
+        # Replanejar (marca passo como falho + LLM reformula) antes de voltar
+        # ao agente. Sem plano ativo → fluxo legado byte-idêntico.
+        if any(
+            p.get("status", "pendente") in ("pendente", "executando")
+            for p in (state.get("plano") or [])
+        ):
+            return "replanejar"
         return "agente"
 
     # --- Montagem -------------------------------------------------
@@ -104,13 +112,15 @@ def montar_grafo(
     grafo.add_node("no_compressao_contexto", nos["no_compressao_contexto"])
     grafo.add_node("no_memoria", nos["no_memoria"])
     grafo.add_node("no_reflexao_pos_turno", nos["no_reflexao_pos_turno"])
+    grafo.add_node("no_planejamento", nos["no_planejamento"])
+    grafo.add_node("no_replanejamento", nos["no_replanejamento"])
 
     # --- Multiagente (F2): orquestrador na entrada, subgrafo por domínio ----
     if cfg.multiagente_ativos:
         multi = montar_multiagente(cfg)
         grafo.add_node("no_orquestrador", multi["no_orquestrador"])
         grafo.add_edge(START, "no_orquestrador")
-        mapeamento: dict[str, str] = {"legado": "no_agente"}
+        mapeamento: dict[str, str] = {"legado": "no_planejamento"}
         for dominio in multi["dominios"]:
             no_sub = f"sub_{dominio}"
             grafo.add_node(no_sub, obter_subgrafo(dominio, llm, ferramentas, cfg))
@@ -122,12 +132,16 @@ def montar_grafo(
             mapeamento,
         )
     else:
-        # Fluxo legado (byte-idêntico): START → no_agente diretamente.
-        # No modo multiagente QUEM decide a entrada é o orquestrador (START →
-        # no_orquestrador); a rota dele encaminha PARA no_agente quando não há
-        # domínio. As duas arestas juntas rodariam o agente principal EM
-        # PARALELO com o subgrafo — bug de execução dupla.
-        grafo.add_edge(START, "no_agente")
+        # Fluxo legado (byte-idêntico): START → no_planejamento (heurística
+        # zero-LLM) → no_agente. No modo multiagente QUEM decide a entrada é o
+        # orquestrador (START → no_orquestrador); a rota dele encaminha PARA
+        # no_planejamento quando não há domínio. As arestas duplas rodariam o
+        # agente principal EM PARALELO com o subgrafo — bug de execução dupla.
+        grafo.add_edge(START, "no_planejamento")
+
+    # C2: planejamento decide-entra no agente; replan volta para o agente
+    grafo.add_edge("no_planejamento", "no_agente")
+    grafo.add_edge("no_replanejamento", "no_agente")
 
     grafo.add_conditional_edges(
         "no_agente",
@@ -146,7 +160,7 @@ def montar_grafo(
     grafo.add_conditional_edges(
         "no_reflexao_auto_correcao",
         rota_apos_reflexao,
-        {"ferramentas": "no_ferramentas", "agente": "no_agente"},
+        {"ferramentas": "no_ferramentas", "agente": "no_agente", "replanejar": "no_replanejamento"},
     )
 
     grafo.add_edge("no_compressao_contexto", "no_memoria")

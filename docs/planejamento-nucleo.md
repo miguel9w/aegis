@@ -22,6 +22,7 @@
 | Fase | Status | Commit/Nota |
 |---|---|---|
 | **C1 — Reflexão pós-turno** | ✅ concluída | `no_reflexao_pos_turno` + recall IDF; 3 liçons extraídas em turno real com erro (1 alta) e re-injetadas no system; 288 pytest + 25 bun verdes |
+| **C2 — Plan-and-execute** | ✅ concluída | `no_planejamento`/`no_replanejamento` + heurística zero-LLM + bloco de plano no system; prova real: plano de 4 passos gerado e executado; 294 pytest + 25 bun verdes |
 
 ---
 

@@ -33,7 +33,15 @@ from .config import Config
 from .estado import EstadoAegis
 from .llm import com_retry
 from .memoria import namespace_licoes, namespace_perfil
-from .prompts import extrair_memoria, reflexao_auto_correcao, reflexao_pos_turno, resumir_historico, sistema
+from .prompts import (
+    extrair_memoria,
+    planejar_tarefa,
+    reflexao_auto_correcao,
+    reflexao_pos_turno,
+    replanejar_tarefa,
+    resumir_historico,
+    sistema,
+)
 
 # ---------------------------------------------------------------------
 # Helpers
@@ -164,6 +172,91 @@ def _prioridade_por_repeticao(registros: list[dict]) -> bool:
 
 
 # ---------------------------------------------------------------------
+# C2 — Plan-and-execute
+# ---------------------------------------------------------------------
+
+_VERBOS_ENTREGA = (
+    "crie", "criar", "implemente", "implementar", "configure", "configurar",
+    "refatore", "refatorar", "gerencie", "gerenciar", "construa", "construir",
+    "monte", "montar", "organize", "organizar", "escreva", "escrever",
+    "gere", "gerar", "instale", "instalar", "deploy", "publique", "publicar",
+    "analise", "analisar", "liste", "listar", "sugira", "sugerir", "avalie",
+    "avaliar", "verifique", "verificar", "corrija", "corrigir", "arrume",
+)
+
+_MARCADORES_MULTI = (
+    "e depois", "em seguida", "por fim", "primeiro", "segundo", "terceiro",
+    "então", "também", "além de", "depois de", "antes de", ";", "1)", "2)",
+    "3)", "passo 1", "passo 2", "na sequência",
+)
+
+
+def _precisa_plano(pergunta: str) -> bool:
+    """Heurística barata (zero LLM) de complexidade da tarefa.
+
+    Ativa planejamento quando a pergunta pede uma ENTREGA multi-passo:
+    comprimento ≥ 120 chars, múltiplos marcadores de sequência ou verbo de
+    entrega + contexto de repo. Perguntas simples/curtas ficam no fluxo
+    legado (byte-idêntico).
+    """
+    if not pergunta:
+        return False
+    texto = pergunta.strip().lower()
+    if len(texto) >= 120:
+        return True
+    marcadores = sum(1 for m in _MARCADORES_MULTI if m in texto)
+    if marcadores >= 2:
+        return True
+    verbo_entrega = any(v in texto for v in _VERBOS_ENTREGA)
+    if verbo_entrega and ("repo" in texto or "projeto" in texto or "arquivo" in texto
+                          or "código" in texto or "codigo" in texto or "teste" in texto
+                          or "ferramenta" in texto):
+        return True
+    return False
+
+
+def _parsear_plano(texto: str) -> list[dict[str, str]]:
+    """Parse tolerante do JSON do plano: lista de {passo, objetivo} (máx. 6)."""
+    import re
+
+    texto = texto.strip()
+    m = re.search(r"\{.*\}", texto, re.DOTALL)
+    if not m:
+        return []
+    try:
+        dados = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return []
+    passos = dados.get("plano", []) if isinstance(dados, dict) else dados
+    if not isinstance(passos, list):
+        return []
+    plano: list[dict[str, str]] = []
+    for item in passos[:6]:
+        if isinstance(item, str) and item.strip():
+            plano.append({"passo": item.strip(), "objetivo": "", "status": "pendente"})
+        elif isinstance(item, dict):
+            passo = str(item.get("passo", "")).strip() or str(item.get("objetivo", "")).strip()
+            if passo:
+                plano.append({
+                    "passo": passo,
+                    "objetivo": str(item.get("objetivo", "")).strip(),
+                    "status": "pendente",
+                })
+    return plano
+
+
+def _bloco_plano(plano: list[dict]) -> str:
+    """Renderiza o plano ativo com progresso para injeção no system."""
+    linhas = []
+    for i, p in enumerate(plano, 1):
+        status = p.get("status", "pendente")
+        marcador = {"concluido": "✔", "falhou": "✘", "executando": "▶"}.get(status, "·")
+        objetivo = f" — {p['objetivo']}" if p.get("objetivo") else ""
+        linhas.append(f"{marcador} {i}. {p['passo']}{objetivo} [{status}]")
+    return "## Plano ativo (progrida passo a passo; atualize o plano se uma etapa falhar)\n" + "\n".join(linhas)
+
+
+# ---------------------------------------------------------------------
 # Fábrica de nós (recebe LLM, ferramentas, store e config por closure)
 # ---------------------------------------------------------------------
 
@@ -196,6 +289,10 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
             )
         else:
             texto_sistema = sistema(perfil, resumo, ferramentas, state.get("metadados_sessao"))
+
+        # Plano ativo (C2) — guia o modelo passo a passo, com progresso
+        if state.get("plano"):
+            texto_sistema = texto_sistema + "\n\n" + _bloco_plano(state["plano"])
 
         # Lições aprendidas relevantes à pergunta (C1 — memória procedimental).
         # Recall barato (IDF, sem LLM); só injeta quando há conteúdo relevante,
@@ -349,7 +446,76 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                 traceback.print_exc()
         return {}
 
-    # ---- 6. Reflexão pós-turno (C1) ---------------------------------------
+    # ---- 6. Plan-and-execute (C2) ---------------------------------------
+    def no_planejamento(state: EstadoAegis) -> dict:
+        """Planeja tarefas complexas: gera plano ordenado via LLM.
+
+        A heurística `_precisa_plano` decide SEM chamar a LLM (custo zero
+        para perguntas simples — fluxo legado byte-idêntico). O plano fica no
+        estado e é injetado no system do agente como guia passo a passo.
+        """
+        if state.get("plano_considerado"):
+            return {}
+        ultima = next(
+            (m for m in reversed(state.get("mensagens") or [])
+             if getattr(m, "type", "") == "human"),
+            None,
+        )
+        pergunta = str(getattr(ultima, "content", "") or "")[:500]
+        if not _precisa_plano(pergunta):
+            return {"plano_considerado": True}
+        try:
+            resp = com_retry(lambda: llm.invoke([
+                SystemMessage(planejar_tarefa()),
+                HumanMessage(f"Tarefa do usuário:\n{pergunta}"),
+            ]))
+            plano = _parsear_plano(resp.content)
+            saida: dict = {"plano_considerado": True}
+            if plano:
+                saida["plano"] = plano
+            return saida
+        except Exception:  # noqa: BLE001 — planejamento falha sem derrubar o fluxo
+            if cfg.dev:
+                import traceback
+                traceback.print_exc()
+            return {"plano_considerado": True}
+
+    def no_replanejamento(state: EstadoAegis) -> dict:
+        """Reajusta o plano após falha de etapa (erro de ferramenta).
+
+        Marca o passo mais antigo 'pendente' como FALHOU e pede à LLM uma
+        reformulação do restante (atalho/abordagem alternativa). Mantém o que
+        já foi concluído fora do plano.
+        """
+        plano = list(state.get("plano") or [])
+        if not plano:
+            return {}
+        erros = state.get("erros_ferramenta") or []
+        contexto = "\n".join(str(e) for e in erros[-2:]) or "erro de ferramenta"
+        # marca o primeiro passo pendente/executando como falho
+        for p in plano:
+            if p.get("status") in ("pendente", "executando"):
+                p["status"] = "falhou"
+                break
+        try:
+            resp = com_retry(lambda: llm.invoke([
+                SystemMessage(replanejar_tarefa()),
+                HumanMessage(
+                    f"Erro ocorrido:\n{contexto}\n\n"
+                    f"Plano atual:\n{_bloco_plano(plano)}"
+                ),
+            ]))
+            novos = _parsear_plano(resp.content)
+            if novos:
+                return {"plano": novos}
+            return {"plano": plano}
+        except Exception:  # noqa: BLE001 — replan falha e mantém o plano marcado
+            if cfg.dev:
+                import traceback
+                traceback.print_exc()
+            return {"plano": plano}
+
+    # ---- 7. Reflexão pós-turno (C1) ---------------------------------------
     def no_reflexao_pos_turno(state: EstadoAegis) -> dict:
         """Extrai lições duráveis da trajetória do turno e grava na Store.
 
@@ -404,4 +570,6 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         "no_compressao_contexto": no_compressao_contexto,
         "no_memoria": no_memoria,
         "no_reflexao_pos_turno": no_reflexao_pos_turno,
+        "no_planejamento": no_planejamento,
+        "no_replanejamento": no_replanejamento,
     }

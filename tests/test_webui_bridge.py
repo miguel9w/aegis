@@ -162,11 +162,18 @@ def test_turno_simples_fim_e_metrica():
 
 def test_tool_sistema_frame_arquivo(tmp_path, monkeypatch):
     from aegis.config import Config
+
+    def _resposta_plano(passos: list[dict]) -> AIMessage:
+        import json
+        return AIMessage(content=json.dumps({"plano": passos}, ensure_ascii=False))
+
     cfg = Config()
     cfg.multiagente_ativos = False
     monkeypatch.setattr(config, "artefatos_dir", tmp_path / "artefatos")
     m = ModeloFake()
     m.configurar([
+        # C2: "crie um arquivo" dispara o planejamento (heurística verbo+contexto)
+        _resposta_plano([{"passo": "escrever arquivo", "objetivo": "criar x.txt"}]),
         chamada_tool("escrever_arquivo", {"caminho": str(tmp_path / "artefatos" / "x.txt"),
                                           "conteudo": "oi"}, "call_f1"),
         AIMessage(content="arquivo escrito"),

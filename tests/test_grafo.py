@@ -415,3 +415,118 @@ def test_no_agente_sem_licoes_relevantes_nao_injeta_bloco(tmp_path):
     })
     system = espiao.chamadas[0][0]
     assert "Lições aprendidas" not in system.content
+
+
+# ---------------------------------------------------------------------
+# C2 — Plan-and-execute: plano no estado + replan após erro
+# ---------------------------------------------------------------------
+
+def _resposta_plano(passos: list[dict]) -> AIMessage:
+    import json
+    return AIMessage(content=json.dumps({"plano": passos}, ensure_ascii=False))
+
+
+def test_pergunta_simples_nao_gera_plano(tmp_path):
+    """Pergunta curta → fluxo legado: sem plano, sem chamada extra ao LLM."""
+    from aegis.nos import _precisa_plano
+    assert _precisa_plano("calcule 2+2") is False
+    assert _precisa_plano("oi") is False
+    assert _precisa_plano("qual a capital da França?") is False
+
+
+def test_tarefa_complexa_dispara_plano(tmp_path):
+    """Pergunta com múltiplos passos → heurística ativa (sem LLM)."""
+    from aegis.nos import _precisa_plano
+    assert _precisa_plano("crie o arquivo X, depois rode os testes e por fim faça o push") is True
+    assert _precisa_plano("implemente a ferramenta com testes e documentação") is True
+    assert _precisa_plano("analise o projeto, liste as dependências e sugira melhorias") is True
+
+
+def test_plano_gerado_e_injetado_no_system(tmp_path):
+    """Tarefa complexa → plano no estado E bloco '## Plano ativo' no system."""
+    from aegis.nos import fabricar_nos
+    plano_json = _resposta_plano([
+        {"passo": "listar arquivos", "objetivo": "ver o repo"},
+        {"passo": "rodar testes", "objetivo": "validar"},
+    ])
+    espiao = ModeloEspiao(saida=plano_json.content)
+    cfg = _cfg(tmp_path)
+    nos = fabricar_nos(espiao, [], None, cfg)
+    saida = nos["no_planejamento"]({
+        "mensagens": [HumanMessage("implemente a ferramenta X, rode os testes e faça o push")],
+        "metadados_sessao": {"thread_id": "t-plano"},
+    })
+    assert saida["plano"], "plano não gerado"
+    assert all(p["status"] == "pendente" for p in saida["plano"])
+    assert saida["plano_considerado"] is True
+
+    # injeção no system do nó agente
+    espiao2 = ModeloEspiao(saida="resp")
+    nos2 = fabricar_nos(espiao2, [], None, cfg)
+    nos2["no_agente"]({
+        "mensagens": [HumanMessage("implemente a ferramenta X")],
+        "metadados_sessao": {"thread_id": "t-plano2"},
+        "plano": saida["plano"],
+    })
+    system = espiao2.chamadas[0][0]
+    assert "## Plano ativo" in system.content
+    assert "listar arquivos" in system.content
+
+
+def test_plano_nao_chama_llm_em_pergunta_simples(tmp_path):
+    """Heurística negativa → nó de planejamento retorna sem invocar o LLM."""
+    from aegis.nos import fabricar_nos
+    espiao = ModeloEspiao(saida="nem deveria ser chamado")
+    cfg = _cfg(tmp_path)
+    nos = fabricar_nos(espiao, [], None, cfg)
+    saida = nos["no_planejamento"]({
+        "mensagens": [HumanMessage("oi")],
+        "metadados_sessao": {"thread_id": "t-simples"},
+    })
+    assert not espiao.chamadas, "LLM não deveria ser chamado para pergunta simples"
+    assert not saida.get("plano")
+
+
+def test_replanejamento_marca_passo_falho(tmp_path):
+    """LLM sem plano válido → fallback mantém o plano com o passo marcado falho."""
+    from aegis.nos import fabricar_nos
+    plano = [
+        {"passo": "executar comando", "objetivo": "rodar", "status": "pendente"},
+        {"passo": "validar saída", "objetivo": "verificar", "status": "pendente"},
+    ]
+    espiao = ModeloEspiao(saida="falhei, mas sem json")  # LLM não devolve plano → fallback
+    cfg = _cfg(tmp_path)
+    nos = fabricar_nos(espiao, [], None, cfg)
+    saida = nos["no_replanejamento"]({
+        "mensagens": [HumanMessage("roda o comando")],
+        "metadados_sessao": {"thread_id": "t-replan"},
+        "plano": plano,
+        "erros_ferramenta": ["ERRO_FERRAMENTA: comando falhou"],
+    })
+    novo_plano = saida["plano"]
+    assert novo_plano[0]["status"] == "falhou"
+    assert novo_plano[1]["status"] == "pendente"
+
+
+def test_replanejamento_reformula_com_llm(tmp_path):
+    """LLM devolve plano revisado → o passo que falhou sai; continuação fica."""
+    import json
+    from aegis.nos import fabricar_nos
+    plano = [
+        {"passo": "executar comando", "objetivo": "rodar", "status": "pendente"},
+        {"passo": "validar saída", "objetivo": "verificar", "status": "pendente"},
+    ]
+    espiao = ModeloEspiao(saida=json.dumps({"plano": [
+        {"passo": "validar saída", "objetivo": "verificar"},
+    ]}, ensure_ascii=False))
+    cfg = _cfg(tmp_path)
+    nos = fabricar_nos(espiao, [], None, cfg)
+    saida = nos["no_replanejamento"]({
+        "mensagens": [HumanMessage("roda o comando")],
+        "metadados_sessao": {"thread_id": "t-replan2"},
+        "plano": plano,
+        "erros_ferramenta": ["ERRO_FERRAMENTA: comando falhou"],
+    })
+    plano_novo = saida["plano"]
+    assert [p["passo"] for p in plano_novo] == ["validar saída"]
+    assert all(p["status"] == "pendente" for p in plano_novo)

@@ -74,5 +74,11 @@ class EstadoAegis(TypedDict):
     modo_conservador: NotRequired[bool]
 
     # --- Reflexão pós-turno (C1) ---
-    # Lições extraídas no fim do turno (memória procedimental, Store licoes/)
+    # Lições extraídas no fim do turno (memória procedimental)
     licoes_turno: NotRequired[list[str]]
+
+    # --- Plan-and-execute (C2) ---
+    # Plano ativo: [{"passo", "objetivo", "status": pendente|executando|concluido|falhou}]
+    plano: NotRequired[list[dict[str, str]]]
+    # True quando o planejamento já foi considerado neste turno (evita re-LLM)
+    plano_considerado: NotRequired[bool]
