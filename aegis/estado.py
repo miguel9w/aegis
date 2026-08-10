@@ -90,3 +90,9 @@ class EstadoAegis(TypedDict):
     verificacao_veredito: NotRequired[str]
     # Nº de correções por verificação no turno (limita o loop corrigir→verificar)
     verificacoes_realizadas: NotRequired[int]
+
+    # --- Memória estrutural (C4) ---
+    # Último resumo incremental da sessão (também persistido na Store)
+    resumo_sessao: NotRequired[str]
+    # Decisões-chave extraídas no fim do turno
+    decisoes_turno: NotRequired[list[str]]

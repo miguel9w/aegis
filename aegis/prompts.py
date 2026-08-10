@@ -212,6 +212,22 @@ def verificar_resposta() -> str:
     )
 
 
+def resumir_sessao() -> str:
+    """Prompt da memória estrutural (C4): resumo incremental + decisões."""
+    return (
+        "Você é o memoriarista do Aegis. Recebeu o histórico recente de uma "
+        "sessão e (se houver) o resumo anterior. Produza o RESUMO INCREMENTAL "
+        "da sessão (evolução, estado atual, pendências) e as DECISÕES-CHAVE "
+        "tomadas (escolhas técnicas, convenções, conclusões firmes).\n"
+        "Regras:\n"
+        "1. Resumo conciso (até 400 chars), cobrindo o que mudou desde o "
+        "resumo anterior — não repita o passado.\n"
+        "2. Decisões: até 4, cada uma com o formato 'decisão (motivo)'.\n"
+        "3. Retorne APENAS um JSON válido: "
+        '{"resumo": "...", "decisoes": ["..."]}.'
+    )
+
+
 def sistema_pesquisador() -> str:
     """Prompt do subagente PESQUISADOR (persona de pesquisa profunda)."""
     return (

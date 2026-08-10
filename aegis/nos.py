@@ -32,7 +32,7 @@ from langgraph.store.base import BaseStore
 from .config import Config
 from .estado import EstadoAegis
 from .llm import com_retry
-from .memoria import namespace_licoes, namespace_perfil
+from .memoria import namespace_decisoes, namespace_licoes, namespace_perfil, namespace_resumos
 from .prompts import (
     extrair_memoria,
     planejar_tarefa,
@@ -40,6 +40,7 @@ from .prompts import (
     reflexao_pos_turno,
     replanejar_tarefa,
     resumir_historico,
+    resumir_sessao,
     sistema,
     verificar_resposta,
 )
@@ -328,19 +329,28 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         if state.get("plano"):
             texto_sistema = texto_sistema + "\n\n" + _bloco_plano(state["plano"])
 
-        # Lições aprendidas relevantes à pergunta (C1 — memória procedimental).
-        # Recall barato (IDF, sem LLM); só injeta quando há conteúdo relevante,
-        # mantendo o system byte-idêntico nos demais casos.
+        # Recall hierárquico (C4): perfil → lições → resumo → decisões.
+        # Barato (IDF, sem LLM); só injeta quando há conteúdo, mantendo o
+        # system byte-idêntico nos demais casos.
         if store is not None:
             try:
-                from .recuperacao import recuperar_licoes
+                from .recuperacao import (
+                    definir_thread,
+                    recuperar_contexto_para_system,
+                )
+                definir_thread(str((state.get("metadados_sessao") or {}).get("thread_id", "")))
                 consulta = " ".join(
                     str(getattr(m, "content", ""))[:200]
                     for m in state["mensagens"][-3:]
                 )
-                bloco_licoes = recuperar_licoes(store, consulta)
-                if bloco_licoes:
-                    texto_sistema = texto_sistema + "\n\n" + bloco_licoes
+                bloco_contexto = recuperar_contexto_para_system(
+                    store,
+                    str((state.get("metadados_sessao") or {}).get("thread_id", "")),
+                    consulta,
+                    teto=cfg.teto_bloco_contexto,
+                )
+                if bloco_contexto:
+                    texto_sistema = texto_sistema + "\n\n" + bloco_contexto
             except Exception:  # noqa: BLE001 — recall é otimização, nunca bloqueia
                 pass
 
@@ -597,7 +607,56 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                 traceback.print_exc()
             return {}
 
-    # ---- 8. Reflexão pós-turno (C1) ---------------------------------------
+    # ---- 8. Memória estrutural (C4) ---------------------------------------
+    def no_memoria_estrutural(state: EstadoAegis) -> dict:
+        """Resumo incremental + decisões-chave da sessão, persistidos na Store.
+
+        Só consome LLM a cada `intervalo_resumo_sessao` mensagens (default 5) —
+        turnos curtos seguem custo zero. O resumo anterior entra como contexto
+        (incremento, não repetição).
+        """
+        if store is None:
+            return {}
+        thread_id = str((state.get("metadados_sessao") or {}).get("thread_id", ""))
+        if not thread_id or len(state.get("mensagens") or []) < cfg.intervalo_resumo_sessao:
+            return {}
+        try:
+            anterior = ""
+            item = store.get(namespace_resumos(thread_id), "resumo")
+            if item and item.value:
+                anterior = str(item.value.get("texto", "")) if isinstance(item.value, dict) else str(item.value)
+            recentes = [str(m.content) for m in (state.get("mensagens") or [])[-6:]]
+            resp = com_retry(lambda: llm.invoke([
+                SystemMessage(resumir_sessao()),
+                HumanMessage(
+                    f"Resumo anterior (se houver):\n{anterior or '(nenhum)'}\n\n"
+                    f"Histórico recente:\n" + "\n".join(f"- {r[:300]}" for r in recentes)
+                ),
+            ]))
+            import re as _re
+            m = _re.search(r"\{.*\}", str(resp.content or ""), _re.DOTALL)
+            dados = {}
+            if m:
+                try:
+                    dados = json.loads(m.group(0))
+                except json.JSONDecodeError:
+                    dados = {}
+            resumo = str(dados.get("resumo", "") or "").strip()[:1000]
+            decisoes = [str(d) for d in (dados.get("decisoes") or []) if str(d).strip()][:4]
+            if not resumo:
+                return {}
+            store.put(namespace_resumos(thread_id), "resumo",
+                      {"texto": resumo, "ts": time.strftime("%Y-%m-%d %H:%M:%S")})
+            store.put(namespace_decisoes(thread_id), "recentes",
+                      {"lista": decisoes, "ts": time.strftime("%Y-%m-%d %H:%M:%S")})
+            return {"resumo_sessao": resumo, "decisoes_turno": decisoes}
+        except Exception:  # noqa: BLE001 — memória estrutural nunca derruba o fluxo
+            if cfg.dev:
+                import traceback
+                traceback.print_exc()
+            return {}
+
+    # ---- 9. Reflexão pós-turno (C1) ---------------------------------------
     def no_reflexao_pos_turno(state: EstadoAegis) -> dict:
         """Extrai lições duráveis da trajetória do turno e grava na Store.
 
@@ -655,4 +714,5 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         "no_planejamento": no_planejamento,
         "no_replanejamento": no_replanejamento,
         "no_verificar": no_verificar,
+        "no_memoria_estrutural": no_memoria_estrutural,
     }

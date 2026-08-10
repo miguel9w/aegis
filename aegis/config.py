@@ -65,6 +65,12 @@ class Config:
             in {"1", "true", "yes"}
         )
 
+        # --- Memória estrutural (C4) ---
+        # A cada N turnos o fim da sessão grava resumo incremental + decisões
+        self.intervalo_resumo_sessao: int = int(os.getenv("AEGIS_INTERVALO_RESUMO", "5"))
+        # Teto de caracteres por nível no recall hierárquico injetado no system
+        self.teto_bloco_contexto: int = int(os.getenv("AEGIS_TETO_CONTEXTO", "600"))
+
         # --- Habilidades / trajetória ---
         self.skills_dir: Path = RAIZ / os.getenv("AEGIS_SKILLS_DIR", "extensions/skills")
         # Flag de ativação + diretório (separados — AEGIS_TRAJETORIA é um switch)

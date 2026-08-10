@@ -310,10 +310,12 @@ def test_reflexao_pos_turno_grava_licoes(tmp_path):
     from aegis.memoria import namespace_licoes
     modelo = ModeloFake()
     modelo.configurar([
-        chamada_tool("calculadora", {"expressao": "2 + 2"}, id_chamada="call_a"),
-        AIMessage(content="Resultado: 4."),
-        _resposta_licoes([{"texto": "sempre validar a entrada antes de calcular", "prioridade": "media"}]),
-    ])
+            chamada_tool("calculadora", {"expressao": "2+2"}, id_chamada="call_a"),
+            AIMessage(content="Resultado: 4."),
+            _resposta_verificacao("ok", [{"fonte": "calculadora", "conferida": True,
+                                          "observacao": "bate"}]),
+            _resposta_licoes([{"texto": "sempre validar entrada antes de calcular", "prioridade": "media"}]),
+        ])
     app, cfg = _app(tmp_path, modelo)
     resultado = app.invoke(
         {"mensagens": [HumanMessage("calcule 2+2")],
@@ -614,3 +616,74 @@ def test_modo_estrita_desligada_nao_verifica(tmp_path):
     })
     assert not espiao.chamadas
     assert not saida
+
+
+# ---------------------------------------------------------------------
+# C4 — Memória estrutural: resumo de sessão + decisões + recall hierárquico
+# ---------------------------------------------------------------------
+
+def _resposta_resumo(texto: str, decisoes: list[str]) -> AIMessage:
+    import json
+    return AIMessage(content=json.dumps(
+        {"resumo": texto, "decisoes": decisoes}, ensure_ascii=False))
+
+
+def test_resumo_sessao_gravado_apos_intervalo(tmp_path):
+    """Turno com ≥ intervalo de mensagens → resumo e decisões na Store."""
+    import json as _json
+    from aegis.memoria import namespace_resumos, namespace_decisoes
+    from aegis.nos import fabricar_nos
+    cfg = _cfg(tmp_path)
+    store = criar_store_sync(tmp_path / "res.db")
+    espiao = ModeloEspiao(saida=_json.dumps(
+        {"resumo": "sessão sobre instalação", "decisoes": ["usar pacman para instalar"]},
+        ensure_ascii=False))
+    nos = fabricar_nos(espiao, [], store, cfg)
+    mensagens = [HumanMessage(f"pergunta {i}") for i in range(5)]
+    saida = nos["no_memoria_estrutural"]({
+        "mensagens": mensagens,
+        "metadados_sessao": {"thread_id": "t-res"},
+    })
+    assert "instalação" in saida.get("resumo_sessao", "")
+    assert saida.get("decisoes_turno") == ["usar pacman para instalar"]
+    assert store.get(namespace_resumos("t-res"), "resumo") is not None
+    assert store.get(namespace_decisoes("t-res"), "recentes") is not None
+
+
+def test_memoria_estrutural_ignora_turno_curto(tmp_path):
+    """Menos que o intervalo → zero chamadas de LLM."""
+    from aegis.nos import fabricar_nos
+    cfg = _cfg(tmp_path)
+    espiao = ModeloEspiao(saida="não deveria")
+    nos = fabricar_nos(espiao, [], None, cfg)
+    nos["no_memoria_estrutural"]({
+        "mensagens": [HumanMessage("oi")],
+        "metadados_sessao": {"thread_id": "t-curto"},
+    })
+    assert not espiao.chamadas
+
+
+def test_recuperar_contexto_hierarquia(tmp_path):
+    """Recall hierárquico: perfil → lições → resumo → decisões, na ordem."""
+    from aegis.recuperacao import recuperar_contexto_para_system
+    store = criar_store_sync(tmp_path / "ctx.db")
+    store.put(("aegis", "perfil"), "perfil", {"nome": "Fulano", "stack": "Next"})
+    store.put(("aegis", "licoes"), "l1", {"texto": "verificar o caminho antes de gravar", "prioridade": "media"})
+    store.put(("aegis", "resumos", "t-ctx"), "resumo", {"texto": "configuramos o sandbox", "ts": "x"})
+    store.put(("aegis", "decisoes", "t-ctx"), "recentes", {"lista": ["usar uv em vez de pip"]})
+    bloco = recuperar_contexto_para_system(store, "t-ctx", "como gravar arquivos no projeto?")
+    # ordem hierárquica dos cabeçalhos
+    import re
+    pos = [bloco.index(h) for h in ("## Perfil", "## Lições", "## Resumo", "## Decisões")]
+    assert pos == sorted(pos), "hierarquia fora de ordem"
+    assert "Fulano" in bloco
+    assert "verificar o caminho" in bloco
+    assert "sandbox" in bloco
+    assert "uv" in bloco
+
+
+def test_recuperar_contexto_tool_registrada():
+    """A tool recuperar_contexto existe e responde com o contexto da Store."""
+    from aegis.ferramentas import carregar_ferramentas
+    nomes = {f.name for f in carregar_ferramentas()}
+    assert "recuperar_contexto" in nomes

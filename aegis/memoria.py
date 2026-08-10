@@ -24,26 +24,27 @@ from .config_json import carregar_config_json as _cfg_json
 _BUSY_TIMEOUT_MS = int(_cfg_json("limites.json", {"busy_timeout_ms": 2000})["busy_timeout_ms"])
 
 
-# Cache de conexões por caminho — checkpointer e store COMPARTILHAM a mesma
-# conexão, evitando 'database is locked' por disputa entre duas conexões.
+# Cache de conexões por (caminho, componente) — SqliteSaver e SqliteStore
+# usam conexões SEPARADAS: compartilhar a mesma conexão faz o checkpoint de
+# um super-step commitar a transação do store ("cannot commit - no
+# transaction is active"). WAL + busy_timeout resolvem a contenção.
 _conexoes: dict[str, sqlite3.Connection] = {}
 
 
-def _conexao(caminho: str | Path) -> sqlite3.Connection:
-    """Abre (e reutiliza) uma conexão SQLite persistente por arquivo.
+def _conexao(caminho: str | Path, rotulo: str = "") -> sqlite3.Connection:
+    """Abre (e reutiliza) uma conexão SQLite persistente por componente.
 
-    Uma única conexão é compartilhada entre SqliteSaver e SqliteStore do
-    mesmo banco; a thread-safety fica por conta do lock interno do SQLite,
-    eliminando o erro 'database is locked' de escrita concorrente. WAL e
-    busy_timeout adicionam tolerância extra.
+    `rotulo` isola checkpointer ("ckpt") de store ("store") — cada um é dono
+    da própria transação, eliminando o erro de transação aninhada sem
+    reintroduzir 'database is locked' (WAL + busy_timeout).
     """
-    chave = str(caminho)
+    chave = f"{caminho}::{rotulo}"
     conn = _conexoes.get(chave)
     if conn is not None:
         return conn
 
     Path(caminho).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(chave, check_same_thread=False, isolation_level=None)
+    conn = sqlite3.connect(str(caminho), check_same_thread=False, isolation_level=None)
     conn.execute("PRAGMA journal_mode=WAL")   # leitura/escrita concorrentes
     conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")  # aguarda lock brevemente
     conn.execute("PRAGMA synchronous=NORMAL")
@@ -72,7 +73,7 @@ def criar_checkpointer_sync(caminho: str | Path):
         raise ConfigError(
             "dependência langgraph-checkpoint-sqlite ausente. Execute: pixi install"
         ) from exc
-    saver = SqliteSaver(conn=_conexao(caminho))
+    saver = SqliteSaver(conn=_conexao(caminho, "ckpt"))
     _setup(saver)
     return saver
 
@@ -105,7 +106,7 @@ def criar_store_sync(caminho: str | Path):
     except ImportError:  # pragma: no cover
         from langgraph.store.memory import InMemoryStore  # fallback simples
         return InMemoryStore()
-    store = SqliteStore(conn=_conexao(caminho))
+    store = SqliteStore(conn=_conexao(caminho, "store"))
     _setup(store)
     return store
 
@@ -125,5 +126,15 @@ def namespace_memoria(thread_id: str) -> tuple[str, ...]:
 
 
 def namespace_licoes() -> tuple[str, ...]:
-    """Namespace global de lições aprendidas (memória procedimental, C1)."""
+    """Namespace das lições aprendidas (memória procedimental global)."""
     return ("aegis", "licoes")
+
+
+def namespace_resumos(thread_id: str) -> tuple[str, ...]:
+    """Namespace dos resumos incrementais por sessão (C4)."""
+    return ("aegis", "resumos", thread_id)
+
+
+def namespace_decisoes(thread_id: str) -> tuple[str, ...]:
+    """Namespace das decisões-chave por sessão (C4)."""
+    return ("aegis", "decisoes", thread_id)

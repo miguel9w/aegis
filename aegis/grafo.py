@@ -120,6 +120,7 @@ def montar_grafo(
     grafo.add_node("no_reflexao_auto_correcao", nos["no_reflexao_auto_correcao"])
     grafo.add_node("no_compressao_contexto", nos["no_compressao_contexto"])
     grafo.add_node("no_memoria", nos["no_memoria"])
+    grafo.add_node("no_memoria_estrutural", nos["no_memoria_estrutural"])
     grafo.add_node("no_reflexao_pos_turno", nos["no_reflexao_pos_turno"])
     grafo.add_node("no_planejamento", nos["no_planejamento"])
     grafo.add_node("no_replanejamento", nos["no_replanejamento"])
@@ -179,7 +180,8 @@ def montar_grafo(
     )
 
     grafo.add_edge("no_compressao_contexto", "no_memoria")
-    grafo.add_edge("no_memoria", "no_reflexao_pos_turno")
+    grafo.add_edge("no_memoria", "no_memoria_estrutural")
+    grafo.add_edge("no_memoria_estrutural", "no_reflexao_pos_turno")
     grafo.add_edge("no_reflexao_pos_turno", END)
 
     return grafo.compile(checkpointer=checkpointer, store=store)
