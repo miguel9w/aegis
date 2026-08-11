@@ -15,7 +15,7 @@ from ..skills import carregar_e_expor
 from ..plugins import carregar_plugins, erros_carregamento
 from ..recuperacao import pesquisar_memoria, recuperar_contexto
 from ..memoria_tool import gerenciar_memoria
-from ..subagentes import delegar_pesquisa, delegar_redacao
+from ..subagentes import tools_delegacao  # X1: catálogo de delegados (delegar_*)
 from ..agendador import agendar, cancelar_agendamento, listar_agendamentos
 from ..sessoes import pesquisar_sessoes
 from ..tarefas import tarefas
@@ -51,8 +51,7 @@ def carregar_ferramentas(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.append(pesquisar_memoria)  # RAG-lite sobre Store + extensions/skills
     ferramentas.append(recuperar_contexto)  # recall hierárquico (perfil→lições→resumo→decisões)
     ferramentas.append(gerenciar_memoria)  # memória explícita salvar/esquecer/listar
-    ferramentas.append(delegar_pesquisa)  # subagente pesquisador
-    ferramentas.append(delegar_redacao)   # subagente redator
+    ferramentas.extend(tools_delegacao())  # X1: delegar_pesquisa/redacao/codigo/dados/revisao
     ferramentas.append(agendar)  # cron interno
     ferramentas.append(listar_agendamentos)
     ferramentas.append(cancelar_agendamento)
@@ -108,8 +107,7 @@ def recarregar_tudo(config_obj: Any = None) -> list[BaseTool]:
     ferramentas.extend(ferramentas_trabalho())  # G5: pausa/retomada/undo/replay
     ferramentas.append(pesquisar_memoria)
     ferramentas.append(gerenciar_memoria)
-    ferramentas.append(delegar_pesquisa)
-    ferramentas.append(delegar_redacao)
+    ferramentas.extend(tools_delegacao())  # X1: catálogo de delegados
     ferramentas.append(agendar)
     ferramentas.append(listar_agendamentos)
     ferramentas.append(cancelar_agendamento)

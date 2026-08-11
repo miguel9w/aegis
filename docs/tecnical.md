@@ -37,7 +37,7 @@ sobre **LangGraph** (Python), com:
 | Linguagem | Python 3.11 (gerenciado por **Pixi** — `pixi.toml`, 100% reproduzível) |
 | Framework de agente | LangGraph 1.x + LangChain (`ChatOpenAI` compatível com qualquer endpoint) |
 | Web UI | **Bun** 1.3.11 (TypeScript vanilla, bundlado) + ponte Python JSONL, porta **8788** |
-| Testes | **379 pytest** + **25 bun tests** (77 `expect()`) — suíte completa verde |
+| Testes | **418 pytest** + **25 bun tests** (77 `expect()`) — suíte completa verde (M1/X1) |
 | Persistência | `config/dados/memoria_agente.db` (checkpoints + Store, gitignored) |
 | Provedor | OpenAI-compatível via env (DeepSeek/OpenRouter/NIM/zen) — chaves SÓ em `config/env/.env` |
 
@@ -143,7 +143,7 @@ Ordem recomendada (do próprio planejamento):
 
 | Fase | Objetivo | Mudanças-chave |
 |---|---|---|
-| **X1 — Catálogo de subagentes sob demanda** | além de `delegar_pesquisa`/`delegar_redacao`, delegados especializados com pool reduzido e auto-correção própria | `delegar_codigo`, `delegar_dados`, `delegar_revisao` (revisor dedicado do G3); catálogo `config/dados/delegados.json` com `arq_limite` (bloqueia cascata infinita); reuso de `fabrica_nos` com persona |
+| **X1 — Catálogo de subagentes sob demanda** ✅ (2026-08) | além de `delegar_pesquisa`/`delegar_redacao`, delegados especializados com pool reduzido e auto-correção própria | `delegar_codigo`, `delegar_dados`, `delegar_revisao` (revisor dedicado do G3); catálogo `config/dados/delegados.json` com `arq_limite` (bloqueia cascata infinita); reuso de `fabrica_nos` com persona |
 | **X2 — Skills/playbooks (memória procedimental versionada)** | generalizar `extensions/skills/` com frontmatter (nome, descrição, gatilho) carregadas sob demanda | registro dinâmico sem reiniciar; tool `carregar_skill` com teto de tokens; skills ranqueadas no RAG-lite pela descrição |
 | **X3 — Fact-checking com fontes** (paridade web-deep-research) | respostas com pesquisa citam fontes; cruza ≥2 fontes antes de afirmar; divergência vira sinalização | busca devolve `{url, titulo, trecho}`; nó `no_fact_check`; estado `fontes: list[{afirmacao, urls, status}]` |
 | **X4 — Early exit inteligente** | o agente para de rodar ferramentas quando já tem o suficiente | sinal no system; heurística `no_early_exit` (pergunta trivial → 1 chamada LLM); métrica `steps_por_turno` |
@@ -199,7 +199,7 @@ aegis/
 ├── sessoes.py               # Session Recall
 ├── skills.py                # skills auto-evolutivas
 ├── slash.py                 # comandos /
-├── subagentes.py            # agent-as-tool
+├── subagentes.py            # X1: catálogo de delegados (agent-as-tool)
 ├── tarefas.py               # Todo (Hermes)
 ├── trajetoria.py            # auditoria JSONL
 ├── tui.py                   # TUI Textual
@@ -211,7 +211,7 @@ tests/                       # 39 arquivos: conftest + suítes por módulo
 docs/                        # planejamento-nucleo, multiagente, webui, tecnical
 config/
 ├── env/.env.example         # modelo de variáveis (NUNCA versionar .env)
-├── dados/                   # limites.json + runtime gitignored + datasets/
+├── dados/                   # delegados.json + limites.json + runtime gitignored + datasets/
 └── prompts_avancados/       # fichas .apf
 extensions/
 ├── plugins/exemplo_plugin.py
@@ -250,7 +250,7 @@ extensions/
 | `memoria.py` | 5,7 KB | `criar_checkpointer_sync` (SqliteSaver — checkpoints por passo) e `criar_store_sync` (SqliteStore — longo prazo), **conexões separadas** (fix de transação), namespaces `namespace_licoes()` e `namespace_handoffs()` (G5). |
 | `recuperacao.py` | 9,6 KB | RAG-lite: ranking por overlap de tokens com peso IDF sobre a Store + `extensions/skills/`; determinístico, sem LLM. |
 | `multiagente.py` | 15,6 KB | Orquestrador por regras (zero LLM) → subgrafo do domínio com fan-out `Send` para 3 especialistas paralelos (cada um com SUA pool) → integrador → avaliador LLM com veredito estruturado; reducer de rascunhos (merge de escritas paralelas); fallback para fluxo legado quando `multiagente_ativos=false` (byte-idêntico). |
-| `subagentes.py` | 5,5 KB | **Agent-as-tool**: `delegar_pesquisa`/`delegar_redacao` — subgrafos stateless com o mesmo loop cognitivo (agente→ferramentas→reflexão), prompt de persona e subconjunto de ferramentas. |
+| `subagentes.py` | 13,9 KB | **X1. Agent-as-tool sob demanda**: catálogo `config/dados/delegados.json` (5 delegados — pesquisador, redator, codigo, dados, revisao; fallback embutido se ausente/corrompido); fábrica `delegar_<nome>` (assinatura por `parametro`, nome por campo `tool`); pools por nome do registro central; anti-cascata `arq_limite` (tool de delegação fora do pool quando a profundidade estoura; `_executar` bloqueia acima do limite do alvo); `tools_delegacao()` expõe as 5 no registro central. |
 | `sandbox.py` | 10,7 KB | **C7.** `ExecutorLocal` (subprocess com timeout), `ExecutorDocker` (container efêmero `--rm`, rede isolada, denylist — docker-in-docker, podman/nerdctl-in-docker, `--privileged`, bomba fork `:\s*\(\s*\)\s*\{` — volume de artefatos em `/artefatos`, **nunca recebe env do host**), `ExecutorSSH` (allowlist de comandos, `BatchMode=yes`, `ConnectTimeout=10`) + fábrica por `AEGIS_SANDBOX_BACKEND`. |
 | `seguranca.py` | 4,9 KB | **C5.** Helpers puros de anti-injeção: `classificar_conteudo` (detecta instrução embutida), marcadores de classe, `BLOCO_SEGURANCA` (bloco no prompt), `_catalogo_ferramentas` (nomes permitidos). Conteúdo externo é DADO. |
 | `uso.py` | 3,9 KB | **C6.** `extrair_uso` (entrada/saída/reasoning de respostas OpenAI-compat), `estimar_custo` (tabela `precos_por_token` em `limites.json`), `verificar_orcamento` (turno/sessão em tokens ou R$). Sem imports de runtime. |
@@ -357,6 +357,7 @@ extensions/
 | `env/.env.example` | Modelo documentado: `OPENAI_API_BASE/KEY`, `MODEL_NAME`, `AEGIS_TEMPERATURA`, `AEGIS_MAX_TOKENS`, `AEGIS_ARTEFATOS_DIR`, `AEGIS_COMANDOS`, `AEGIS_SEARXNG_URL`, `AEGIS_SANDBOX_BACKEND` (local\|docker\|ssh), `AEGIS_OBSIDIAN_DIR` etc. |
 | `dados/limites.json` | Limites centralizados (contexto/trecho/resultado/recursion_limit), `checklist_revisao` (5 itens do G3) e `precos_por_token` (C6). |
 | `dados/agendador_config.json` | Frequências e intervalo do cron (sobrescreve padrões via config_json). |
+| `dados/delegados.json` | **X1.** Catálogo de subagentes: 5 delegados (pesquisador, redator, codigo, dados, revisao) com descrição (para o LLM), `parametro` (pergunta/tarefa), `ferramentas` (por nome) e `arq_limite` (anti-cascata); campo `tool` preserva `delegar_pesquisa`/`delegar_redacao`. |
 | `dados/tarefas_config.json` | Limites da tool `tarefas`. |
 | `dados/papeis.json` | Catálogo de papéis (estende padrões de código). |
 | `dados/memoria_camel_config.json` | Pesos da pontuação CAMEL. |
@@ -762,15 +763,20 @@ extensions/
 - `parsear_slash(texto)` — Splita '/nome arg' (None se não for slash).
 - `executar_slash(nome, arg)` — Execute o comando e devolve o texto de resposta.
 
-**`aegis/subagentes.py`**
+**`aegis/subagentes.py`** — X1: catálogo de delegados sob demanda + fábrica de tools
 
-- `_resposta_final(resultado)` — Extrai a última AIMessage com conteúdo (a resposta final do subagente).
-- `criar_subagente(nome, prompt, ferramentas, cfg, llm)` — Compila um subagente (subgrafo stateless) com o loop cognitivo do núcleo.
-- `_ferramentas_pesquisador()` — Subconjunto de ferramentas do pesquisador: busca + cálculo + memória.
-- `configurar_subagentes(llm, cfg)` — Constrói e registra os subagentes especialistas no registrador global.
-- `_executar(nome, pergunta, contexto)` — Invoca um subagente registrado com a pergunta (e contexto opcional).
-- `delegar_pesquisa(pergunta, contexto)` **[@tool]** — Delega uma pesquisa profunda ao subagente PESQUISADOR. Use para perguntas complexas que exigem buscas na web, cruzamento
-- `delegar_redacao(tarefa)` **[@tool]** — Delega a produção de um texto longo ao subagente REDATOR. Use para escrever/reescrever conteúdo estruturado (artigos, re
+- `_persona_padrao(...)` — Persona genérica para delegados custom do catálogo (sem prompt próprio).
+- `_carregar_catalogo(...)` — Lê `delegados.json` com fallback para o catálogo embutido.
+- `_registro_por_nome(...)` — Registro das ferramentas disponíveis para pools, por nome.
+- `_resolver_pool(...)` — Resolve os nomes do catálogo para tools reais (desconhecidas ignoradas).
+- `_delegado_por_tool(...)` — Delegado do catálogo vigente cuja tool exposta tem `nome_tool`.
+- `_executar(...)` — Invoca um subagente registrado com a tarefa (e contexto opcional).
+- `_tool_delegacao(...)` — Cria a tool `delegar_<nome>` para o delegado do catálogo.
+- `criar_subagente(nome, prompt, ferramentas, cfg, llm, arq_limite=..., profundidade=...)` — Compila um subagente (subgrafo stateless) com o loop cognitivo do núcleo.
+- `configurar_subagentes(llm, cfg)` — Constrói e registra TODOS os delegados do catálogo (JSON → default).
+- `_sincronizar_atributos(...)` — Expõe delegar_* como atributos do módulo (imports legados).
+- `tools_delegacao()` — Todas as tools de delegação do catálogo (para o registro central).
+- `_resposta_final(...)` — Extrai a última AIMessage com conteúdo (a resposta final do subagente).
 
 **`aegis/tarefas.py`**
 

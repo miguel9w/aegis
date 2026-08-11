@@ -80,9 +80,11 @@ def test_delegar_sem_subagente_configurado(monkeypatch):
     assert "não configurado" in saida
 
 
-def test_configurar_subagentes_registra_ambos():
+def test_configurar_subagentes_registra_catalogo():
     sub.configurar_subagentes(ModeloFake(), config)
-    assert set(sub.SUBAGENTES_ATUAIS) == {"pesquisador", "redator"}
+    assert set(sub.SUBAGENTES_ATUAIS) == {
+        "pesquisador", "redator", "codigo", "dados", "revisao",
+    }
 
 
 def test_erro_de_ferramenta_dispara_reflexao_no_subagente():

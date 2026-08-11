@@ -1,0 +1,41 @@
+{
+  "delegados": [
+    {
+      "nome": "pesquisador",
+      "tool": "delegar_pesquisa",
+      "descricao": "Delega uma pesquisa profunda ao subagente PESQUISADOR. Use para perguntas complexas que exigem buscas na web, cruzamento de fontes ou raciocínio numérico com evidências. Retorna resposta sintetizada em pt-BR.",
+      "parametro": "pergunta",
+      "ferramentas": ["buscar_web", "calculadora", "pesquisar_memoria"],
+      "arq_limite": 2
+    },
+    {
+      "nome": "redator",
+      "tool": "delegar_redacao",
+      "descricao": "Delega a produção de texto longo ao subagente REDATOR. Use para escrever/reescrever conteúdo estruturado (artigos, relatórios, seções, comunicados) em pt-BR, quando a tarefa pedir texto extenso.",
+      "parametro": "tarefa",
+      "ferramentas": [],
+      "arq_limite": 1
+    },
+    {
+      "nome": "codigo",
+      "descricao": "Delega a implementação de código ao subagente CODIGO. Use para implementar funções/módulos COM TESTES no sandbox de escrita: ele escreve arquivos, roda comandos e testes, corrige erros em loop e entrega o resultado verificado.",
+      "parametro": "tarefa",
+      "ferramentas": ["ler_arquivo", "escrever_arquivo", "editar_arquivo", "listar_arquivos", "executar_comando", "comando_sandbox", "calculadora"],
+      "arq_limite": 2
+    },
+    {
+      "nome": "dados",
+      "descricao": "Delega análise de dados ao subagente DADOS. Use para análise exploratória, estatísticas e transformações com Python (pandas) no sandbox, a partir de arquivos CSV/JSON.",
+      "parametro": "tarefa",
+      "ferramentas": ["ler_arquivo", "listar_arquivos", "executar_comando", "comando_sandbox", "calculadora"],
+      "arq_limite": 1
+    },
+    {
+      "nome": "revisao",
+      "descricao": "Delega uma revisão crítica ao subagente REVISOR. Use para revisar código, texto ou entrega contra critérios (segurança, testes, documentação, anti-alucinação) — segunda opinião obrigatória do G3 sob demanda.",
+      "parametro": "tarefa",
+      "ferramentas": ["ler_arquivo", "listar_arquivos", "executar_comando", "calculadora"],
+      "arq_limite": 1
+    }
+  ]
+}

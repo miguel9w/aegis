@@ -511,6 +511,16 @@ locais `neo4j/aegis-local`), `pixi run neo4j-down`, `pixi run neo4j-logs`.
 
 ## Fase X1 — Catálogo de subagentes sob demanda
 
+**Status: ✅ implementado (2026-08)** — `config/dados/delegados.json` (5
+delegados: pesquisador, redator, codigo, dados, revisao; campo `tool` preserva
+`delegar_pesquisa`/`delegar_redacao` históricas); fábrica `delegar_<nome>` por
+delegado com assinatura por `parametro` (pergunta/tarefa) + contexto opcional;
+pools resolvidos por nome do registro central (desconhecidas ignoradas);
+anti-cascata `arq_limite` (tools de delegação só entram no pool do subagente
+se a nova profundidade couber no limite; `_executar` bloqueia acima do limite
+do alvo); personas `sistema_codigo`/`sistema_dados`/`sistema_revisor`;
+`tools_delegacao()` expõe as 5 no registro central (G3 sob demanda: revisao).
+
 **Objetivo:** além de `delegar_pesquisa`/`delegar_redacao`, um catálogo de
 delegados especializados — cada um com pool de ferramentas reduzido e o mesmo
 loop de auto-correção do núcleo.
