@@ -177,6 +177,15 @@ class Config:
         self.grafo_path: Path = RAIZ / os.getenv(
             "AEGIS_GRAFO", "config/dados/grafo_conhecimento.json")
 
+        # --- Memória GraphRAG (M1) — Neo4j com dois grafos ---
+        # URI vazia = recurso desativado (fallback: grafo JSON G4 + RAG-lite).
+        # Credenciais vivem no .env (config/env/.env), nunca no repositório.
+        self.neo4j_uri: str = os.getenv("AEGIS_NEO4J_URI", "").strip()
+        self.neo4j_usuario: str = os.getenv("AEGIS_NEO4J_USER", "neo4j").strip()
+        self.neo4j_senha: str = os.getenv("AEGIS_NEO4J_PASSWORD", "").strip()
+        # TTL (horas) dos nós triviais do grafo privado (purga lazy)
+        self.neo4j_ttl_privado_h: int = int(os.getenv("AEGIS_NEO4J_TTL_PRIVADO_H", "24"))
+
         # --- Diversos ---
         self.dev: bool = _dev()
 

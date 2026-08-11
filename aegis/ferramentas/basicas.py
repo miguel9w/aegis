@@ -224,19 +224,33 @@ def ferramentas_basicas() -> list:
 # ---------------------------------------------------------------------
 
 @tool
-def consultar_grafo(termo: str) -> str:
-    """Consulta o grafo de conhecimento dos aprendizados do projeto.
+def consultar_grafo(termo: str, grafo: str = "universal") -> str:
+    """Consulta o grafo de conhecimento da memória do projeto.
 
-    Sem rede e sem LLM: navegação por relação por regras. `termo` pode ser
-    uma categoria (decisao/licao/padrao/surpresa), ferramenta, fase, erro
-    ou palavra do texto do aprendizado — devolve os aprendizados diretos e
-    os relacionados (que compartilham ferramenta/fase/erro/categoria).
+    Sem rede e sem LLM. `grafo=\"universal\"` (padrão) consulta o grafo
+    IMPORTANTE e durável (lições, estado final de tarefas, modificações
+    persistentes, capacidades e falhas estruturais); `grafo=\"privado\"`
+    consulta os detalhes triviais efêmeros (retries, depuração de sintaxe,
+    contextos brutos). Quando o Neo4j está ativo devolve nós diretos e os
+    relacionados por 1 salto (GraphRAG); sem Neo4j, fallback para o grafo
+    JSON local (G4). `termo` pode ser categoria, ferramenta, fase, erro ou
+    palavra do texto.
     """
+    from ..config import config as cfg_global
+    from ..neografo import consultar_graphrag
+
+    # M1: Neo4j ativo → consulta GraphRAG (diretos + relacionados)
+    bloco = consultar_graphrag(cfg_global, termo, grafo=grafo, limite=8)
+    if bloco is not None:
+        if bloco:
+            return bloco
+        return f"Nenhum resultado no grafo {grafo} para '{termo}'."
+    # Fallback: grafo JSON local (G4 — sem Neo4j configurado)
     from ..aprendizados import GrafoConhecimento
 
     try:
-        grafo = GrafoConhecimento(config.grafo_path)
-        return grafo.formatar(termo)
+        grafo_local = GrafoConhecimento(cfg_global.grafo_path)
+        return grafo_local.formatar(termo)
     except Exception as exc:  # noqa: BLE001 — ferramenta nunca derruba o fluxo
         return f"ERRO_FERRAMENTA: grafo indisponível — {exc}"
 

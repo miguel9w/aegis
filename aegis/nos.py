@@ -1263,17 +1263,18 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                 # G4: classificação em 4 categorias para o grafo + arquivo
                 licoes_com_categoria.append(
                     (texto, prioridade_efetiva, classificar(texto)))
+            # M1: metadados do turno (usados pelo G4 e pela memória GraphRAG)
+            ferramenta_turno = (
+                registros[-1].get("nome", "") if registros else "")
+            fase_turno = str(
+                (state.get("fluxo_trabalho") or {}).get("fase", ""))
+            erro_turno = next(
+                (str(r.get("resultado", ""))[:80] for r in registros
+                 if "ERRO_FERRAMENTA" in str(r.get("resultado", ""))),
+                "")
             # G4: grafo de conhecimento + documento versionado (só com lições)
             if licoes_com_categoria:
                 try:
-                    ferramenta_turno = (
-                        registros[-1].get("nome", "") if registros else "")
-                    fase_turno = str(
-                        (state.get("fluxo_trabalho") or {}).get("fase", ""))
-                    erro_turno = next(
-                        (str(r.get("resultado", ""))[:80] for r in registros
-                         if "ERRO_FERRAMENTA" in str(r.get("resultado", ""))),
-                        "")
                     grafo = GrafoConhecimento(cfg.grafo_path)
                     for texto, prioridade, categoria in licoes_com_categoria:
                         grafo.adicionar(
@@ -1292,6 +1293,12 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                     if cfg.dev:
                         import traceback
                         traceback.print_exc()
+            # M1: memória GraphRAG — grava nos DOIS grafos Neo4j (no-op sem Neo4j)
+            from .neografo import gravar_turno_graphrag
+            gravar_turno_graphrag(
+                cfg, registros, licoes_com_categoria,
+                fase=fase_turno, erro=erro_turno,
+                thread_id=str(cfg.thread_id or "default"))
             return {"licoes_turno": gravadas, "uso_tokens": extrair_uso(resp)}
         except Exception:  # noqa: BLE001 — reflexão falha sem derrubar o fluxo
             if cfg.dev:

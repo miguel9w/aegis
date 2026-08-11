@@ -456,6 +456,59 @@ restaura o repo sem perda lateral.
 
 ---
 
+## Fase M1 — Memória GraphRAG (Neo4j, dois grafos de conhecimento)
+
+**Status: ✅ implementado (2026-08)** — `aegis/neografo.py` (classificação
+determinística trivial × importante + cliente Neo4j com Cypher parametrizado +
+fallback automático) + `tests/test_neografo.py` (23 testes, incl. integração
+real com container `neo4j:5`) — commit `…` (ver git log). **402 passed** com a
+prova real: gravação/consulta/limpeza num Neo4j de verdade.
+
+**Objetivo:** superar as limitações do RAG simples (ranking por sobreposição de
+tokens) para a memória: os fatos viram um GRAFO navegável por entidades e
+relações (GraphRAG), dividido em DOIS grafos por importância:
+
+- **Grafo PRIVADO (trivial, efêmero — TTL 24h + escopo por execução):**
+  retries de comandos, depuração de sintaxe e logs de passos intermediários;
+  variáveis temporárias com ciclo de vida restrito à execução atual; contextos
+  brutos de chamadas de API ou arquivos lidos.
+- **Grafo UNIVERSAL (importante, durável):** estado final da execução de uma
+  tarefa solicitada pelo Orquestrador; modificações persistentes no ambiente
+  (ex.: "Nova dependência instalada no sistema"); novas capacidades ou falhas
+  estruturais descobertas durante a execução.
+
+**Mudanças:**
+- `aegis/neografo.py`: `classificar_registro()`/`classificar_e_tipo()` — regras
+  do usuário, determinísticas (zero LLM), default conservador PRIVADO; cliente
+  `GrafoNeo4j` (MERGE/CREATE com `$params` — anti-injeção; `_executar_mutacao`
+  confirma escrita via `.consume()`); consulta GraphRAG = nós diretos + vizinhos
+  de 1 salto; `limpar_privado(execucao_id)` + `purga_vencidos()` (lazy).
+- `aegis/config.py`: `AEGIS_NEO4J_URI` (vazia = desativado), `AEGIS_NEO4J_USER`,
+  `AEGIS_NEO4J_PASSWORD`, `AEGIS_NEO4J_TTL_PRIVADO_H` (24h).
+- `aegis/nos.py` `no_reflexao_pos_turno`: `gravar_turno_graphrag()` grava nos
+  DOIS grafos — lições G4 (idempotentes, hash) + tarefa final (fase ship) +
+  modificações persistentes → universal; retries/sintaxe/contextos → privado.
+- `aegis/recuperacao.py`: recall hierárquico ganha o nível 5 "Memória GraphRAG"
+  (grafo universal); `pesquisar_memoria` intercala nós do grafo.
+- `aegis/ferramentas/basicas.py` `consultar_grafo(termo, grafo=universal|privado)`:
+  Neo4j ativo → GraphRAG; senão fallback grafo JSON (G4).
+- Neo4j Community = 1 database → os dois grafos convivem separados pela
+  propriedade `grafo` + label comum `:Memoria` (índice por `grafo`).
+
+**Fallback:** sem `AEGIS_NEO4J_URI` (ou com Neo4j fora), TUDO continua
+funcionando — grafo JSON do G4 + RAG-lite. Nada quebra.
+
+**Operação:** `pixi run neo4j-up` (container `neo4j:5-community`, credenciais
+locais `neo4j/aegis-local`), `pixi run neo4j-down`, `pixi run neo4j-logs`.
+
+**Critério de aceite (prova real):** turno sintético com os exemplos do usuário
+→ "Nova dependência instalada no sistema: uv" cai no UNIVERSAL (nó
+`Modificacao`), retry/sintaxe caem no PRIVADO (nó `Trivial`, tipos `retry`/
+`sintaxe`); consulta "uv" no universal devolve a lição E a modificação
+(GraphRAG por entidade). ✅ verificado em 2026-08 com container real.
+
+---
+
 ## Fase X1 — Catálogo de subagentes sob demanda
 
 **Objetivo:** além de `delegar_pesquisa`/`delegar_redacao`, um catálogo de

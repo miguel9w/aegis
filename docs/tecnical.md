@@ -186,6 +186,7 @@ aegis/
 ├── memoria_camel.py         # memória pontuada
 ├── memoria_tool.py          # memória explícita (Hermes)
 ├── multiagente.py           # orquestrador + especialistas
+├── neografo.py              # M1: memória GraphRAG (Neo4j, dois grafos)
 ├── nos.py                   # nós do grafo (57 KB — maior módulo)
 ├── obsidian.py              # vault md + wikilinks
 ├── papeis.py                # roles CAMEL
@@ -254,6 +255,7 @@ extensions/
 | `seguranca.py` | 4,9 KB | **C5.** Helpers puros de anti-injeção: `classificar_conteudo` (detecta instrução embutida), marcadores de classe, `BLOCO_SEGURANCA` (bloco no prompt), `_catalogo_ferramentas` (nomes permitidos). Conteúdo externo é DADO. |
 | `uso.py` | 3,9 KB | **C6.** `extrair_uso` (entrada/saída/reasoning de respostas OpenAI-compat), `estimar_custo` (tabela `precos_por_token` em `limites.json`), `verificar_orcamento` (turno/sessão em tokens ou R$). Sem imports de runtime. |
 | `aprendizados.py` | 5,8 KB | **G4.** `classificar` (decisão/lição/padrão/surpresa), `GrafoConhecimento` (grafo.json com entidades/relações, navegação por ferramenta/fase/erro/categoria), `bloco_markdown`, `nome_arquivo_sessao`. |
+| `neografo.py` | 21,7 KB | **M1.** Memória GraphRAG: `classificar_registro`/`classificar_e_tipo` (trivial×importante, regras determinísticas — zero LLM), `GrafoNeo4j` (dois grafos num database Community via propriedade `grafo` + label `:Memoria`; Cypher 100% `$parametrizado`; `_executar_mutacao` confirma escrita via `.consume()`; consulta = nós diretos + vizinhos 1 salto; `limpar_privado`/`purga_vencidos`), `gravar_turno_graphrag` (fachada chamada pela reflexão), `consultar_graphrag` (None = inativo → fallback RAG-lite). |
 | `trajetoria.py` | 3,8 KB | Auditoria JSONL: início/fim de ferramentas, transições de nós, chamadas ao modelo — append + flush à prova de interrupção. |
 | `sessoes.py` | 10,9 KB | **Session Recall** (paridade Hermes `session_search_tool`): busca em sessões passadas indexadas das trajetórias (FTS5-like local, sem LLM), 3 modos. |
 | `memoria_tool.py` | 5,5 KB | Memória explícita (paridade Hermes `memory_tool`): add/replace/remove sobre a Store — memória de perfil injetada no system. |
@@ -322,6 +324,7 @@ extensions/
 | `test_sandbox_distribuido.py` | C7: 17 testes — contrato docker/ssh com subprocess mockado (denylist, allowlist, env limpo, auditoria) + integração docker real opcional. |
 | `test_aprendizados.py` | G4: 9 testes — 4 categorias, grafo, `consultar_grafo`, arquivo versionado (tmp). |
 | `test_trabalho_g5.py` | G5: 10 testes — handoff, retomada com invariante (nenhum passo re-executado), revert (repo git tmp, SHA válido/HEAD/inválido), replay (igual/diferente/não reproduzível). |
+| `test_neografo.py` | M1: 23 testes — classificação trivial×importante (regras do usuário), Cypher `$parametrizado` (anti-injeção), driver mockado (distribuição universal×privado, idempotência), fallback sem Neo4j + integração real com container `neo4j:5` (skip automático). |
 | `test_multiagente.py` | Orquestrador, especialistas paralelos, avaliador, pools, reducer de rascunhos, rota legado × subgrafo. |
 | `test_subagentes.py` | Delegação agent-as-tool (determinístico, sem rede). |
 | `test_webui_bridge.py` | Frames do protocolo da ponte via `executar_job` (sem subprocesso). |
@@ -580,6 +583,28 @@ extensions/
 - `_bloco_plano(plano)` — Renderiza o plano ativo com progresso para injeção no system.
 - `_parsear_verificacao(texto)` — Parse tolerante do JSON de verificação: {"veredito", "evidencias"}. Retorna None quando não há JSON válido — o fluxo tra
 - `fabricar_nos(llm, ferramentas, store, cfg, prompt_fn)` — Cria todos os nós do grafo com o contexto injetado. `prompt_fn` (opcional) substitui o prompt de sistema padrão — usado 
+
+**`aegis/neografo.py`** — M1: memória GraphRAG — dois grafos Neo4j
+
+- `classificar_registro(registro)` — Classifica um registro do turno como 'privado' (trivial) ou 'universal'.
+- `_id_de(texto, prefixo)` — Id determinístico (hash) — lições idempotentes; CREATE usa ts_ns.
+- `classificar_e_tipo(registro)` — (grafo, subtipo) para gravação — classificação + tipo de nó.
+- `classe GrafoNeo4j` — Cliente mínimo do Neo4j: gravação nos dois grafos + consulta GraphRAG.
+  - `saude()` — Ping rápido no banco (verifica conectividade + schema).
+  - `_criar_schema(driver)` — Constraints + índice (idempotentes, IF NOT EXISTS).
+  - `_executar(cypher, params)` — Executa com parâmetros; falha silenciosa (grafo nunca derruba).
+  - `_executar_mutacao(cypher, params)` — Executa um MERGE/CREATE (sem RETURN) e confirma via .consume().
+  - `gravar_licao(texto, categoria, ferramenta, fase, erro, prioridade, thread_id)` — Lições (G4) sobem ao grafo universal — id determinístico (idempotente).
+  - `gravar_tarefa_final(texto, veredito, origem, thread_id)` — Estado final de uma tarefa (entrega G1 / orquestrador) → universal.
+  - `gravar_modificacao(texto, tipo, ferramenta, thread_id)` — Modificação persistente do ambiente (ex.: dependência instalada).
+  - `gravar_trivial(texto, tipo, ferramenta, execucao_id, thread_id)` — Detalhe trivial (retry/sintaxe/contexto bruto) → privado, com TTL.
+  - `limpar_privado(execucao_id)` — Remove os triviais de uma execução (ciclo de vida restrito).
+  - `purga_vencidos()` — Purga lazy: triviais com expira_em vencido.
+  - `consultar(termo, grafo, limite)` — Busca por entidade/termo + nós relacionados (1 salto) — GraphRAG.
+  - `fechar()` —
+- `grafo_neo4j(cfg)` — Singleton do cliente, sob a configuração atual (None se desativado).
+- `consultar_graphrag(cfg, termo, grafo, limite)` — Consulta o grafo Neo4j; None quando inativo (fallback → RAG-lite).
+- `gravar_turno_graphrag(cfg, registros, licoes_com_categoria, fase, erro, thread_id)` — Grava o turno nos dois grafos Neo4j — no-op completo sem Neo4j ativo.
 
 **`aegis/obsidian.py`**
 

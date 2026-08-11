@@ -35,6 +35,10 @@ prompts = "python main.py --prompts"   # lista os prompts avançados (APF)
 webui = "bun ./webui/server.ts"        # web UI técnica (Bun + ponte LangGraph)
 webui-build = "bun build ./webui/src/app.ts --outdir ./webui/public/dist"  # bundle de produção
 webui-test = "bun test ./webui/*.test.ts"  # testes do servidor web (bridge fake)
+# Memória GraphRAG (M1) — Neo4j em container oficial (credenciais locais)
+neo4j-up = "docker run -d --name aegis-neo4j --restart unless-stopped -p 7687:7687 -p 7474:7474 -e NEO4J_AUTH=neo4j/aegis-local -v aegis_neo4j_data:/data neo4j:5-community"
+neo4j-down = "docker rm -f aegis-neo4j"
+neo4j-logs = "docker logs --tail 80 aegis-neo4j"
 
 # ---------------------------------------------------------------------
 # Dependências conda (binários nativos + runtime)
@@ -64,3 +68,4 @@ textual = ">=0.80.0"                       # TUI moderna (substitui o loop Live 
 linkify-it-py = ">=2.0.0"                  # plugin linkify p/ Markdown do Textual
 pytest = ">=8.0.0"                         # testes
 hypothesis = ">=6.165.3, <7"
+neo4j = ">=5.20"                            # driver oficial — memória GraphRAG (M1)

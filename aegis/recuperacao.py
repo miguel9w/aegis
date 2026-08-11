@@ -14,6 +14,7 @@ from typing import Any
 from langchain_core.tools import tool
 
 from . import skills as _skills  # leitura dinâmica (criar_skill recarrega o registro)
+from .config import config as _cfg  # M1: GraphRAG usa o singleton global
 
 # Store de longo prazo injetada em montar_grafo (runtime)
 STORE_ATUAL: Any = None
@@ -123,6 +124,14 @@ def pesquisar_memoria(consulta: str, limite: int = 5) -> str:
         if len(trechos) >= min(max(1, limite), 8):
             break
 
+    # M1: memória GraphRAG — o grafo universal é a fonte de IMPORTANTE;
+    # consulta quando o Neo4j está ativo (None = inativo → segue só RAG-lite)
+    from .neografo import consultar_graphrag
+    bloco = consultar_graphrag(_cfg, consulta, "universal", limite=3)
+    if bloco:
+        grafo_itens = [l for l in bloco.splitlines() if l.startswith("- ")]
+        trechos = grafo_itens + trechos
+
     if not trechos:
         return "Nenhum resultado relevante na memória para essa consulta."
     return "Memória recuperada:\n" + "\n".join(f"- {t}" for t in trechos)
@@ -228,6 +237,11 @@ def recuperar_contexto_para_system(
             lista = item.value.get("lista", []) if isinstance(item.value, dict) else []
             if isinstance(lista, list) and lista:
                 blocos.append(_nivel("Decisões recentes", "\n".join(f"- {d}" for d in lista), teto))
+        # 5. M1: grafo universal (GraphRAG) — importante e durável; None = inativo
+        from .neografo import consultar_graphrag
+        bloco_grafo = consultar_graphrag(_cfg, consulta, "universal", limite=3)
+        if bloco_grafo:
+            blocos.append(bloco_grafo)
     except Exception:  # noqa: BLE001 — recall nunca derruba o agente
         return ""
     return "\n\n".join(b for b in blocos if b)
