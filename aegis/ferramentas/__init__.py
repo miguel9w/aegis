@@ -9,6 +9,7 @@ from langchain_core.tools import BaseTool
 from ..config import config
 from .basicas import ferramentas_basicas
 from .sistema import ferramentas_sistema
+from .relogio import relogio
 from ..skills import carregar_e_expor
 from ..plugins import carregar_plugins, erros_carregamento
 from ..recuperacao import pesquisar_memoria, recuperar_contexto
@@ -43,6 +44,7 @@ def carregar_ferramentas(config_obj: Any = None) -> list[BaseTool]:
 
     ferramentas: list[BaseTool] = []
     ferramentas.extend(ferramentas_basicas())
+    ferramentas.append(relogio)  # relógio mundial (múltiplos fusos IANA)
     ferramentas.extend(ferramentas_sistema())  # arquivos (sandbox) + comandos (política)
     ferramentas.append(pesquisar_memoria)  # RAG-lite sobre Store + extensions/skills
     ferramentas.append(recuperar_contexto)  # recall hierárquico (perfil→lições→resumo→decisões)
@@ -99,6 +101,7 @@ def recarregar_tudo(config_obj: Any = None) -> list[BaseTool]:
     cfg = config_obj or config
     ferramentas: list[BaseTool] = []
     ferramentas.extend(ferramentas_basicas())
+    ferramentas.append(relogio)  # relógio mundial (múltiplos fusos IANA)
     ferramentas.extend(ferramentas_sistema())  # arquivos (sandbox) + comandos (política)
     ferramentas.append(pesquisar_memoria)
     ferramentas.append(gerenciar_memoria)
