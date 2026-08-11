@@ -209,17 +209,21 @@ fluxo) — `tests/test_seguranca.py` (12 testes). Suíte: 333 verdes + webui 25/
 **Objetivo:** medir uso real por turno/sessão e cortar execução quando o
 orçamento estoura — com visibilidade na UI.
 
+**Status: ✅ implementado (2026-08)** — `aegis/uso.py` + `tests/test_orcamento.py`
+(10 testes). Execução: medição em 5 nós LLM (agente, reflexões, verificar,
+revisor, pós-turno) → `uso_tokens` com reducer de soma; corte na `rota_apos_agente`
+**antes** do routing de tools; ponte emite o frame `orcamento` (card na web UI).
+
 **Mudanças:**
-- Medição: `usage` do stream por passo → `uso_tokens` no estado
-  (entrada/saída/reasoning) + custo estimado por tabela de preços em
+- Medição: `usage` das respostas OpenAI-compat por passo → `uso_tokens` no
+  estado (entrada/saída/reasoning) + custo estimado por tabela de preços em
   `config/dados/limites.json`.
-- Config: `orcamento_por_turno`, `orcamento_por_sessao` (tokens e R$);
-  estouro → rota `fim` com resumo parcial + evento novo `orcamento` na ponte
-  (UI mostra aviso).
-- Tool `estatisticas` (paridade caveman-stats): tokens, custo, taxa de
-  sucesso por ferramenta, top ferramentas, por sessão e acumulado.
-- Persistência das métricas no checkpointer (campo `uso_tokens` com reducer de
-  soma) e export JSON.
+- Config: `orcamento_por_turno`, `orcamento_por_sessao` (tokens e R$); estouro
+  → rota `fim_corte` (END direto) com resumo parcial + evento novo `orcamento`
+  na ponte (UI mostra aviso `cardOrcamento`).
+- Tool `estatisticas` (paridade caveman-stats): tokens, custo, taxa de sucesso
+  por ferramenta, top ferramentas, por sessão e acumulado do banco (export JSON
+  com `formato="json"`).
 
 **Testes:**
 - ModeloFake com `usage` alto → corte na rota + evento `orcamento`.

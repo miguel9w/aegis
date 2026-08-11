@@ -12,5 +12,18 @@
     "testes",
     "documentacao",
     "anti-alucinacao"
-  ]
+  ],
+  "precos_por_token": {
+    "entrada": 0.55,
+    "saida": 2.2,
+    "reasoning": 3.0
+  },
+  "orcamento_por_turno": {
+    "tokens": 200000,
+    "reais": 0.3
+  },
+  "orcamento_por_sessao": {
+    "tokens": 2000000,
+    "reais": 3.0
+  }
 }

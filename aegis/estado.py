@@ -12,6 +12,8 @@ import operator
 from typing import Annotated, Any, NotRequired, TypedDict
 
 from langchain_core.messages import BaseMessage
+
+from .uso import somar_uso
 from langgraph.graph.message import add_messages
 
 
@@ -76,6 +78,13 @@ class EstadoAegis(TypedDict):
     # --- Reflexão pós-turno (C1) ---
     # Lições extraídas no fim do turno (memória procedimental)
     licoes_turno: NotRequired[list[str]]
+
+    # --- Orçamento (C6) ---
+    # Contabilidade de uso acumulada na sessão: {entrada, saida, reasoning}
+    # (reducer de SOMA — persiste no checkpointer entre turnos)
+    uso_tokens: NotRequired[Annotated[dict[str, int], somar_uso]]
+    # Detalhes do corte quando o orçamento estoura (turno/sessão, teto, usado)
+    orcamento_estourado: NotRequired[dict[str, Any]]
 
     # --- Plan-and-execute (C2) ---
     # Plano ativo: [{"passo", "objetivo", "status": pendente|executando|concluido|falhou}]

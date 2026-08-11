@@ -384,6 +384,14 @@ function cardArquivo(f: Frame) {
   det.innerHTML = `<details><summary>diff (${String(f.acao)})</summary>${renderDiff(String(f.diff ?? ""))}</details>`;
 }
 
+function cardOrcamento(f: Frame) {
+  const metrica = f.metrica === "tokens" ? "tokens" : "R$";
+  const escopo = f.escopo === "sessao" ? "sessão" : "turno";
+  const d = itemFeed("💰", `<strong>orçamento estourado (${escopo}, ${metrica})</strong><span class="chip chip-politica">corte</span>`, undefined, "erro");
+  const det = d.querySelector(".feed-detalhe") as HTMLDivElement;
+  det.textContent = `limite ${f.teto} — usado ${f.usado}. Resposta parcial; execução interrompida.`;
+}
+
 function cardComando(f: Frame) {
   const statusTxt = f.status === "ok" ? "✓" : f.status === "recusado" ? "🛑 recusado" : "✗";
   const confirmado = f.confirmado ? " [confirmado]" : "";
@@ -506,6 +514,7 @@ function aoFrame(f: Frame) {
     }
     case "arquivo": cardArquivo(f); break;
     case "comando": cardComando(f); break;
+    case "orcamento": cardOrcamento(f); break;
     case "subgrafo": cardSubgrafo(f); break;
     case "veredito": cardVeredito(f); break;
     case "metrica": {

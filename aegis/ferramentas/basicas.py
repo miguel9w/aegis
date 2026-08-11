@@ -185,4 +185,68 @@ def comando_sandbox(comando: str, timeout: int = 30) -> str:
 # ---------------------------------------------------------------------
 
 def ferramentas_basicas() -> list:
-    return [calculadora, hora_atual, buscar_web, comando_sandbox]
+    return [calculadora, hora_atual, buscar_web, comando_sandbox, estatisticas]
+
+
+# ---------------------------------------------------------------------
+# Estatísticas de uso e custo (C6 — paridade caveman-stats)
+# ---------------------------------------------------------------------
+
+@tool
+def estatisticas(escopo: str = "sessao", formato: str = "texto") -> str:
+    """Métricas de uso: tokens, custo estimado e ferramentas executadas.
+
+    Sem rede. `escopo="sessao"` → contabilidade da thread atual (persistida
+    no checkpointer, acumulada entre turnos); `escopo="acumulado"` → total de
+    todo o banco (todas as threads). `formato="json"` → export JSON das
+    métricas (paridade com o status armazenado no checkpointer).
+    """
+    from ..memoria import criar_checkpointer_sync
+    from ..uso import custo_estimado, somar_uso, total_tokens
+
+    sessao: dict[str, int] = {}
+    registros: list[dict] = []
+    try:
+        saver = criar_checkpointer_sync(config.banco)
+        if escopo == "acumulado":
+            for tupla in saver.list({}):
+                valores = ((tupla.checkpoint or {}).get("channel_values") or {})
+                sessao = somar_uso(sessao, valores.get("uso_tokens") or {})
+        else:
+            tupla = saver.get_tuple({"configurable": {"thread_id": config.thread_id}})
+            if tupla:
+                valores = ((tupla.checkpoint or {}).get("channel_values") or {})
+                sessao = dict(valores.get("uso_tokens") or {})
+                registros = list((valores.get("registros_ferramentas") or [])[:6])
+    except Exception:  # noqa: BLE001 — métricas nunca bloqueiam a resposta
+        sessao = {}
+
+    custo = custo_estimado(sessao, config.precos_por_token)
+    ok = sum(1 for r in registros if not r.get("erro"))
+    n = len(registros)
+    por_nome: dict[str, int] = {}
+    for r in registros:
+        por_nome[r.get("nome", "?")] = por_nome.get(r.get("nome", "?"), 0) + 1
+    top = ", ".join(f"`{nome}` ×{qtd}" for nome, qtd in
+                    sorted(por_nome.items(), key=lambda kv: -kv[1])[:3])
+    taxa = f"{ok}/{n}" if n else "0/0"
+    if formato == "json":
+        import json
+        return json.dumps({
+            "escopo": escopo,
+            "tokens": sessao,
+            "total_tokens": total_tokens(sessao),
+            "custo_estimado_reais": custo,
+            "ferramentas_turno": {"execucoes": n, "sucesso": taxa,
+                                  "top": dict(sorted(por_nome.items(), key=lambda kv: -kv[1])[:3])},
+        }, ensure_ascii=False)
+    return (
+        "📊 **Estatísticas de uso**"
+        f" ({'acumulado do banco' if escopo == 'acumulado' else f'sessão `{config.thread_id}`'})\n"
+        f"- Tokens: {sessao.get('entrada', 0):,} entrada | "
+        f"{sessao.get('saida', 0):,} saída | {sessao.get('reasoning', 0):,} reasoning — "
+        f"total {total_tokens(sessao):,}\n"
+        f"- Custo estimado: **R$ {custo:.4f}**\n"
+        f"- Ferramentas (turno): {n} execuções — taxa de sucesso {taxa}"
+        + (f"\n  - top: {top}" if top else "")
+    )

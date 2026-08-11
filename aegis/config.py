@@ -58,6 +58,15 @@ class Config:
             _cfg_json("limites.json", {"checklist_revisao": _CHECKLIST_REVISAO_PADRAO})
             .get("checklist_revisao") or _CHECKLIST_REVISAO_PADRAO)
 
+        # --- Orçamento (C6) — preços (R$/1M tokens) e tetos por turno/sessão
+        _limites = _cfg_json("limites.json", {})
+        self.precos_por_token: dict[str, float] = dict(
+            _limites.get("precos_por_token") or {"entrada": 0.55, "saida": 2.2, "reasoning": 3.0})
+        self.orcamento_por_turno: dict[str, float] = dict(
+            _limites.get("orcamento_por_turno") or {})
+        self.orcamento_por_sessao: dict[str, float] = dict(
+            _limites.get("orcamento_por_sessao") or {})
+
         # --- Gestão de contexto ---
         self.limiar_compressao: int = int(os.getenv("AEGIS_LIMIAR_COMPRESSAO", "20"))
         self.manter_apos_compressao: int = int(os.getenv("AEGIS_MANTER_APOS_COMPRESSAO", "8"))

@@ -76,6 +76,10 @@ def montar_grafo(
 
     # --- Roteadores condicionais ----------------------------------
     def rota_apos_agente(state: EstadoAegis) -> str:
+        # C6 PRIMEIRO: orçamento estourado → resumo parcial, NADA mais executa
+        # (nem tools pendentes, nem verify, nem memória — o turno termina)
+        if state.get("orcamento_estourado"):
+            return "fim_corte"
         ultima = state["mensagens"][-1]
         if isinstance(ultima, AIMessage) and ultima.tool_calls:
             return "ferramentas"
@@ -204,6 +208,7 @@ def montar_grafo(
             "comprimir": "no_compressao_contexto",
             "verificar": "no_verificar",
             "verify_entrega": "no_verify_entrega",
+            "fim_corte": END,
         },
     )
     grafo.add_conditional_edges(

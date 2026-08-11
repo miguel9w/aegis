@@ -34,7 +34,8 @@ from .config import Config
 from .estado import EstadoAegis
 from .llm import com_retry
 from .memoria import namespace_decisoes, namespace_licoes, namespace_perfil, namespace_resumos, namespace_uat
-from .seguranca import EH_FONTE_EXTERNA
+from .seguranca import EH_FONTE_EXTERNA, LICAO_SEGURANCA, classificar_conteudo, marcar_conteudo
+from .uso import custo_estimado, extrair_uso, somar_uso, total_tokens, verificar_orcamento
 from .prompts import (
     extrair_memoria,
     planejar_tarefa,
@@ -509,7 +510,27 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
             resposta.additional_kwargs = {
                 **resposta.additional_kwargs, "reasoning_content": razao,
             }
-        return {"mensagens": [resposta], "perfil_usuario": perfil or {}}
+        # C6: contabilidade de uso + corte por orçamento (turno OU sessão).
+        # A resposta já veio (custo incorrido); o corte impede QUALQUER
+        # continuação — tools não executam e o turno termina em resumo parcial.
+        uso = extrair_uso(resposta)
+        sessao = somar_uso(state.get("uso_tokens"), uso)
+        atualizar: dict[str, Any] = {
+            "mensagens": [resposta], "perfil_usuario": perfil or {},
+            "uso_tokens": uso,
+        }
+        corte = verificar_orcamento(
+            uso, sessao, cfg.orcamento_por_turno, cfg.orcamento_por_sessao,
+            cfg.precos_por_token)
+        if corte:
+            atualizar["orcamento_estourado"] = {
+                **corte,
+                "tokens_turno": total_tokens(uso),
+                "custo_turno": custo_estimado(uso, cfg.precos_por_token),
+                "tokens_sessao": total_tokens(sessao),
+                "custo_sessao": custo_estimado(sessao, cfg.precos_por_token),
+            }
+        return atualizar
 
     # ---- 2. Execução ---------------------------------------------------
     def no_ferramentas(state: EstadoAegis) -> dict:
@@ -569,7 +590,8 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
             SystemMessage(f"ERROS DA ÚLTIMA EXECUÇÃO:\n{trecho_erros}"),
         ]
         resposta = com_retry(lambda: llm_com_ferramentas.invoke(mensagens))
-        return {"mensagens": [resposta], "tentativas_correcao": tentativas}
+        return {"mensagens": [resposta], "tentativas_correcao": tentativas,
+                "uso_tokens": extrair_uso(resposta)}
 
     # ---- 4. Compressão de contexto --------------------------------------
     def _resumir(mensagens_antigas: list[BaseMessage], resumo_anterior: str) -> str:
@@ -752,6 +774,7 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                 "evidencias": v["evidencias"],
                 "verificacao_veredito": v["veredito"],
                 "verificacoes_realizadas": (state.get("verificacoes_realizadas") or 0) + 1,
+                "uso_tokens": extrair_uso(resp),
             }
         except Exception:  # noqa: BLE001 — verificação falha sem derrubar o fluxo
             if cfg.dev:
@@ -967,11 +990,13 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
             f"Evidências (últimas execuções):\n{evidencias}\n\n"
             f"Commits da onda: {len(commits)}"
         )
+        uso_revisor: dict[str, int] = {}
         try:
             resp = com_retry(lambda: llm.invoke([
                 SystemMessage(revisar_entrega(checklist)),
                 HumanMessage(pacote),
             ]))
+            uso_revisor = extrair_uso(resp)
             itens = _parsear_revisao(resp.content)
             # item do checklist sem veredito na resposta = reprovado (fail-safe)
             respondidos = {i["item"] for i in itens}
@@ -1016,12 +1041,14 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
             return {
                 "fluxo_trabalho": ft,
                 "revisao_entrega": ft["revisao_entrega"],
+                "uso_tokens": uso_revisor,
                 "mensagens": [HumanMessage(
                     content=f"[revisão por pares] {ft['feedback']} — corrija e refaça.")],
             }
         ft["feedback"] = ""
         ft["fase"] = "ship"
-        return {"fluxo_trabalho": ft, "revisao_entrega": ft["revisao_entrega"]}
+        return {"fluxo_trabalho": ft, "revisao_entrega": ft["revisao_entrega"],
+                "uso_tokens": uso_revisor}
 
     def no_ship(state: EstadoAegis) -> dict:
         """Fase ship: selo da entrega + resumo + critérios; zero LLM."""
@@ -1231,7 +1258,7 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                     },
                 )
                 gravadas.append(texto)
-            return {"licoes_turno": gravadas}
+            return {"licoes_turno": gravadas, "uso_tokens": extrair_uso(resp)}
         except Exception:  # noqa: BLE001 — reflexão falha sem derrubar o fluxo
             if cfg.dev:
                 import traceback

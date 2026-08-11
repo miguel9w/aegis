@@ -190,6 +190,10 @@ def _processar_evento(evento: dict, est: dict) -> list[dict]:
         saida = (evento.get("data") or {}).get("output")
         if isinstance(saida, dict) and saida:
             est["ultimo_output"] = saida  # o mais externo vence (igual TUI)
+            # C6: nó cortou por orçamento → aviso visível na UI (frame novo)
+            corte = saida.get("orcamento_estourado")
+            if isinstance(corte, dict):
+                frames.append({"kind": "orcamento", **corte})
         nome_chain = evento.get("name") or ""
         if nome_chain.startswith("sub_"):
             frames.append({"kind": "subgrafo", "nome": nome_chain,
