@@ -413,7 +413,9 @@ um arquivo com as 4 categorias e o grafo responde consultas de relação.
 
 ## Fase G5 — Pausa/retomada com handoff e reversão segura
 
-**Objetivo:** trabalho longo interrompido não se perde — o agente grava um
+**Status: ✅ implementado (2026-08)** — `aegis/ferramentas/trabalho.py`
+(`pausar_trabalho`/`retomar_trabalho`/`reverter_entrega`/`replay_turno` +
+`namespace_handoffs` na Store) + `tes...[truncated]
 HANDOFF (estado + contexto + próximos passos) e retoma com contexto completo;
 reversão segura da última entrega e replay para diagnóstico (paridade
 `gsd-pause-work`/`gsd-resume-work` + `gsd-undo` + `gsd-forensics`).

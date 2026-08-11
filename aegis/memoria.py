@@ -130,6 +130,16 @@ def namespace_licoes() -> tuple[str, ...]:
     return ("aegis", "licoes")
 
 
+def namespace_handoffs() -> tuple[str, ...]:
+    """Namespace dos handoffs de trabalho pausado (retomável por thread)."""
+    return ("aegis", "handoffs", "sessao")
+
+
+def namespace_handoff_thread(thread_id: str = "default") -> tuple[str, ...]:
+    """Namespace do handoff de UMA sessão (sem perfil de dados)."""
+    return ("aegis", "handoffs", "sessao", str(thread_id))
+
+
 def namespace_resumos(thread_id: str) -> tuple[str, ...]:
     """Namespace dos resumos incrementais por sessão (C4)."""
     return ("aegis", "resumos", thread_id)
