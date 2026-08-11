@@ -145,6 +145,7 @@ def montar_grafo(
     grafo.add_node("no_plan_entrega", nos["no_plan_entrega"])
     grafo.add_node("no_verify_entrega", nos["no_verify_entrega"])
     grafo.add_node("no_ship", nos["no_ship"])
+    grafo.add_node("no_uat_apos_ship", nos["no_uat_apos_ship"])
 
     # --- Multiagente (F2): orquestrador na entrada, subgrafo por domínio ----
     # G1: o classificador de entrega roda em AMBAS as entradas — o ramo
@@ -204,7 +205,22 @@ def montar_grafo(
         rota_apos_verify_entrega,
         {"ship": "no_ship", "agente": "no_agente"},
     )
-    grafo.add_edge("no_ship", "no_memoria")
+    grafo.add_edge("no_ship", "no_uat_apos_ship")
+    # G2: UAT pergunta critério a critério (interrupt); quando todos julgados,
+    # segue para a memória estrutural (C4). Sem critérios/sem ship → memória.
+    def rota_apos_uat(state: EstadoAegis) -> str:
+        ft = state.get("fluxo_trabalho") or {}
+        criterios = [c.get("texto") for c in (ft.get("criterios") or [])]
+        if not criterios:
+            return "memoria"
+        julgados = {u.get("criterio") for u in (state.get("uat") or [])}
+        return "uat" if any(c not in julgados for c in criterios) else "memoria"
+
+    grafo.add_conditional_edges(
+        "no_uat_apos_ship",
+        rota_apos_uat,
+        {"uat": "no_uat_apos_ship", "memoria": "no_memoria"},
+    )
     grafo.add_conditional_edges(
         "no_verificar",
         rota_apos_verificacao,

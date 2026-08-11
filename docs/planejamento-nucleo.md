@@ -26,6 +26,7 @@
 | **C3 — Verify-then-answer** | ✅ concluída | `no_verificar` + rota divergência→correção (máx 1×, sem loop); prova real: evidência "saída do comando" conferida; 298 pytest + 25 bun verdes |
 | **C4 — Memória estrutural** | ✅ concluída | resumo incremental + decisões por thread + recall hierárquico + tool `recuperar_contexto`; fix raiz do flaky: conexões sqlite separadas saver/store; 302 pytest + 25 bun verdes |
 | **G1 — Modo entrega (ciclo GSD)** | ✅ concluída | ciclo discuss→plan→execute→verify→ship (classificador zero-LLM); discussão com perguntas via interrupt; waves auditadas com commits; verify goal-backward com correção (anti-loop); prova real: ship 3/3 critérios; 306 pytest + 25 bun verdes |
+| **G2 — UAT conversacional** | ✅ concluída | `no_uat_apos_ship` julga critérios um a um (interrupt, zero LLM); reprovados viram `gaps` persistidos na Store por projeto (sobrevivem a `/clear`) e retornam como contexto do próximo ciclo; fix real: nome de tool de skill sanitizado (`usar_skill_<nome>` — providers validam `^[a-zA-Z0-9_-]+$`); 309 pytest + 25 bun verdes |
 
 ---
 

@@ -64,7 +64,7 @@ def test_carregar_e_expor_cria_ferramentas(tmp_path):
     )
     ferramentas = carregar_e_expor(tmp_path)
     nomes = [f.name for f in ferramentas]
-    assert "usar_skill:skill-x" in nomes
+    assert "usar_skill_skill-x" in nomes
     assert "criar_skill" in nomes
 
 

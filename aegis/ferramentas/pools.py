@@ -37,7 +37,7 @@ POOLS: dict[str, set[str]] = {
         "buscar_web",
         "contar_palavras",
         "criar_skill",
-        "usar_skill:pesquisa-tecnica",
+        "usar_skill_pesquisa-tecnica",
     },
     "pesquisa": _GERAL | {
         "buscar_papers_arxiv",

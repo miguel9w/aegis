@@ -33,7 +33,7 @@ from langgraph.types import interrupt
 from .config import Config
 from .estado import EstadoAegis
 from .llm import com_retry
-from .memoria import namespace_decisoes, namespace_licoes, namespace_perfil, namespace_resumos
+from .memoria import namespace_decisoes, namespace_licoes, namespace_perfil, namespace_resumos, namespace_uat
 from .prompts import (
     extrair_memoria,
     planejar_tarefa,
@@ -727,6 +727,33 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
             return {}
 
     # ---- 7b. Modo entrega (G1): discuss → plan → execute → verify → ship --
+    def _ler_uat_store(projeto: str) -> list[dict]:
+        """UAT persistido da Store (namespace por PROJETO, não thread)."""
+        if store is None:
+            return []
+        try:
+            itens = store.search(namespace_uat(projeto))
+            if not itens:
+                return []
+            dados = json.loads(str((itens[-1].value or {}).get("json", "[]")))
+            return dados if isinstance(dados, list) else []
+        except Exception:  # noqa: BLE001 — UAT nunca derruba o fluxo
+            return []
+
+    def _gravar_uat_store(projeto: str, uat: list[dict]) -> None:
+        if store is None:
+            return
+        try:
+            store.put(namespace_uat(projeto), f"uat-{time.time():.0f}",
+                      {"json": json.dumps(uat, ensure_ascii=False)})
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _ler_gaps_projeto(projeto: str) -> list[str]:
+        """Critérios reprovados (gaps) do UAT — contexto do próximo ciclo."""
+        return [u["criterio"] for u in _ler_uat_store(projeto)
+                if u.get("resultado") == "reprovado"]
+
     def no_classificador_entrega(state: EstadoAegis) -> dict:
         """Zero-LLM: pedido de ENTREGA ativa o ciclo GSD; senão fluxo legado
         (com `fluxo_trabalho: None`, sem custo e sem tocar no system)."""
@@ -739,9 +766,11 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         )
         pergunta = str(getattr(ultima, "content", "") or "")[:500]
         if _eh_pedido_entrega(pergunta):
+            projeto = str((state.get("metadados_sessao") or {}).get("projeto", "default"))
             return {"fluxo_trabalho": {
                 "fase": "discuss", "plano": [], "criterios": [], "ship": None,
                 "feedback": "", "correcoes": 0, "pergunta": None,
+                "gaps_anteriores": _ler_gaps_projeto(projeto),
             }}
         return {"fluxo_trabalho": None}
 
@@ -783,6 +812,10 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         pergunta = str(getattr(ultima, "content", "") or "")
         anotacoes = ft.get("anotacoes") or ""
         tarefa = pergunta + (f"\nDetalhes do usuário: {anotacoes}" if anotacoes else "")
+        gaps = ft.get("gaps_anteriores") or []
+        if gaps:
+            tarefa += ("\nGaps pendentes do UAT anterior (corrigir junto):\n"
+                       + "\n".join(f"- {g}" for g in gaps))
         try:
             resp = com_retry(lambda: llm.invoke([
                 SystemMessage(planejar_tarefa()),
@@ -893,6 +926,70 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
             f"Resumo: {ft['ship']['resumo']}"
         ))
         return {"mensagens": [msg], "fluxo_trabalho": ft}
+
+    def no_uat_apos_ship(state: EstadoAegis) -> dict:
+        """UAT conversacional (G2): após o ship, apresenta os critérios de
+        aceite UM A UM (interrupt, zero LLM) e registra resultado + evidência.
+
+        Um critério por execução — o grafo volta ao nó até julgar todos
+        (padrão loop de nós com interrupt; cada resume reexecuta o nó com o
+        `uat` do estado atualizado). Ao julgar o último critério, o nó FECHA
+        o UAT na mesma execução: mescla o histórico persistido da Store,
+        calcula gaps e emite o selo 🧪. Critérios reprovados viram `gaps`
+        persistidos POR PROJETO (sobrevivem a `/clear` e a troca de sessão);
+        o próximo ciclo de entrega os retoma como contexto do plano.
+        """
+        ft = dict(state.get("fluxo_trabalho") or {})
+        if ft.get("fase") != "ship":
+            return {}
+        criterios = list(ft.get("criterios") or [])
+        if not criterios:
+            return {}
+        projeto = str((state.get("metadados_sessao") or {}).get("projeto", "default"))
+
+        def fechar_uat(uat_atual: list[dict]) -> dict:
+            antigo = _ler_uat_store(projeto)
+            uat_final = antigo + uat_atual
+            gaps = [u for u in uat_final if u.get("resultado") == "reprovado"]
+            _gravar_uat_store(projeto, uat_final)
+            aprovados = len(uat_final) - len(gaps)
+            linhas = "\n".join(
+                f"  {'✅' if u['resultado'] == 'aprovado' else '⚠️'} {u['criterio']}"
+                for u in uat_final
+            )
+            msg = AIMessage(content=(
+                f"🧪 UAT concluído — {aprovados}/{len(uat_final)} critérios aprovados.\n"
+                f"{linhas}\n"
+                + (("\nGaps (próximo ciclo):\n" + "\n".join(
+                    f"  ⚠️ {u['criterio']}: {u.get('evidencia', '')[:120]}" for u in gaps))
+                    if gaps else "Sem gaps — entrega aceita.")
+            ))
+            return {"uat": uat_final, "gaps": [u["criterio"] for u in gaps],
+                    "mensagens": [msg]}
+
+        uat_atual = list(state.get("uat") or [])
+        julgados = {u.get("criterio") for u in uat_atual}
+        pendentes = [c["texto"] for c in criterios if c["texto"] not in julgados]
+        if not pendentes:
+            return fechar_uat(uat_atual)
+        texto = pendentes[0]
+        resposta = interrupt(
+            f"UAT ({projeto}): o critério \"{texto}\" foi atendido? "
+            "Responda 'aprovado' ou 'reprovado: motivo'."
+        )
+        r = str(resposta or "").strip()
+        aprovado = r.lower().startswith(("aprovado", "ok", "sim", "aceito", "passa"))
+        uat_atual.append({
+            "criterio": texto,
+            "resultado": "aprovado" if aprovado else "reprovado",
+            "evidencia": r[:300],
+        })
+        # se este foi o último critério, FECHA o UAT na mesma execução
+        restantes = [c["texto"] for c in criterios
+                     if c["texto"] not in {u.get("criterio") for u in uat_atual}]
+        if not restantes:
+            return fechar_uat(uat_atual)
+        return {"uat": uat_atual}
 
     # ---- 8. Memória estrutural (C4) ---------------------------------------
     def no_memoria_estrutural(state: EstadoAegis) -> dict:
@@ -1007,4 +1104,5 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         "no_plan_entrega": no_plan_entrega,
         "no_verify_entrega": no_verify_entrega,
         "no_ship": no_ship,
+        "no_uat_apos_ship": no_uat_apos_ship,
     }

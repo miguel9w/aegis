@@ -138,3 +138,8 @@ def namespace_resumos(thread_id: str) -> tuple[str, ...]:
 def namespace_decisoes(thread_id: str) -> tuple[str, ...]:
     """Namespace das decisões-chave por sessão (C4)."""
     return ("aegis", "decisoes", thread_id)
+
+
+def namespace_uat(projeto: str) -> tuple[str, ...]:
+    """UAT por PROJETO (não thread): sobrevive a `/clear` e a troca de sessão."""
+    return ("aegis", "uat", projeto or "default")

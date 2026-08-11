@@ -2,7 +2,7 @@
 Sistema de Habilidades Auto-Evolutivo (padrão aberto agentskills.io).
 
 Lê diretórios `extensions/skills/<nome>/SKILL.md` (frontmatter YAML: name, description;
-corpo: instruções) e expõe cada habilidade como uma ferramenta `usar_skill:<nome>`.
+corpo: instruções) e expõe cada habilidade como uma ferramenta `usar_skill_<nome>`.
 
 O agente também pode **criar novas habilidades em runtime** através da
 ferramenta `criar_skill`, que valida e grava um novo `SKILL.md`, tornando
@@ -98,7 +98,7 @@ def criar_skill_path(diretorio: str | Path, nome: str, descricao: str, conteudo:
 # ---------------------------------------------------------------------
 
 def ferramentas_skills(habilidades: dict[str, dict]) -> list:
-    """Cria ferramentas `usar_skill:<nome>` para cada habilidade carregada."""
+    """Cria ferramentas `usar_skill_<nome>` para cada habilidade carregada."""
     resultado: list = []
 
     def _fazer(nome: str, descricao: str, conteudo: str):
@@ -108,9 +108,11 @@ def ferramentas_skills(habilidades: dict[str, dict]) -> list:
 
         # StructuredTool.from_function aceita nome arbitrário (o decorator @tool
         # exige função pré-definida e rejeita o kwarg `name` em langchain-core 1.x).
+        # O nome NÃO pode conter ":" — providers (ex.: zen) validam
+        # `^[a-zA-Z0-9_-]+$` e rejeitam a chamada com HTTP 400.
         return StructuredTool.from_function(
             func=_ler,
-            name=f"usar_skill:{nome}",
+            name=f"usar_skill_{nome}",
             description=f"{descricao} [habilidade registrada: {nome}]",
         )
 

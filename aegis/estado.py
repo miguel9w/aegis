@@ -104,3 +104,9 @@ class EstadoAegis(TypedDict):
     fluxo_trabalho: NotRequired[dict[str, Any]]
     # Commits atômicos emitidos a cada wave do execute (append-only)
     commits_entrega: NotRequired[Annotated[list[dict[str, Any]], operator.add]]
+
+    # --- UAT conversacional (G2) ---
+    # Julgamentos por critério: [{criterio, resultado, evidencia}]
+    uat: NotRequired[list[dict[str, Any]]]
+    # Critérios reprovados (viram contexto do próximo ciclo de entrega)
+    gaps: NotRequired[list[str]]

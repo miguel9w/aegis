@@ -698,6 +698,25 @@ def _resposta_verify_entrega(vereditos: list[dict]) -> AIMessage:
     return AIMessage(content=json.dumps({"criterios": vereditos}, ensure_ascii=False))
 
 
+def _executar_entrega_com_uat(app, cfg, pedido, respostas_uat, thread_id=None):
+    """Invoca uma entrega até o ship e responde o UAT (G2) pergunta a pergunta
+    via Command(resume); retorna o resultado final."""
+    from langgraph.types import Command
+    tid = thread_id or cfg.thread_id
+    config = {"configurable": {"thread_id": tid}}
+    r = app.invoke(
+        {"mensagens": [HumanMessage(pedido)],
+         "metadados_sessao": {"thread_id": tid}},
+        config=config,
+    )
+    i = 0
+    while r.get("__interrupt__"):
+        assert i < len(respostas_uat), f"interrupt sem resposta programada ({i})"
+        r = app.invoke(Command(resume=respostas_uat[i]), config=config)
+        i += 1
+    return r
+
+
 def test_entrega_ciclo_completo_ordem_fases(tmp_path):
     """Pedido de entrega → fases na ordem discuss→plan→execute→verify→ship
     (invariante de ordem), com wave registrada e ship só com tudo verificado."""
@@ -712,10 +731,10 @@ def test_entrega_ciclo_completo_ordem_fases(tmp_path):
         _resposta_licoes([]),
     ])
     app, cfg = _app(tmp_path, modelo)
-    resultado = app.invoke(
-        {"mensagens": [HumanMessage("adicione a ferramenta somador com testes e push")],
-         "metadados_sessao": {"thread_id": cfg.thread_id}},
-        config={"configurable": {"thread_id": cfg.thread_id}},
+    resultado = _executar_entrega_com_uat(
+        app, cfg,
+        "adicione a ferramenta somador com testes e push",
+        ["aprovado"],
     )
     ft = resultado["fluxo_trabalho"]
     assert ft is not None and ft["fase"] == "ship", f"fase final: {ft}"
@@ -725,8 +744,9 @@ def test_entrega_ciclo_completo_ordem_fases(tmp_path):
     assert fases_vistas, "registros sem fase (auditoria G1)"
     assert "execute" in fases_vistas
     assert resultado["commits_entrega"], "wave sem commit registrado"
-    # mensagem final tem o selo de ship
-    assert "🛳️" in resultado["mensagens"][-1].content
+    # mensagens finais: selo de ship + selo de UAT (G2)
+    textos = " ".join(str(m.content) for m in resultado["mensagens"])
+    assert "🛳️" in textos and "🧪" in textos
 
 
 def test_tarefa_informativa_fluxo_legado_byte_identico(tmp_path):
@@ -761,10 +781,10 @@ def test_verify_reprovado_volta_execute_sem_ship(tmp_path):
         _resposta_licoes([]),
     ])
     app, cfg = _app(tmp_path, modelo)
-    resultado = app.invoke(
-        {"mensagens": [HumanMessage("adicione a rotina de backup com teste e push")],
-         "metadados_sessao": {"thread_id": cfg.thread_id}},
-        config={"configurable": {"thread_id": cfg.thread_id}},
+    resultado = _executar_entrega_com_uat(
+        app, cfg,
+        "adicione a rotina de backup com teste e push",
+        ["aprovado"],
     )
     ft = resultado["fluxo_trabalho"]
     assert ft["fase"] == "ship"
@@ -806,5 +826,120 @@ def test_discuss_vago_pausa_com_pergunta_e_resume(tmp_path):
         Command(resume="deve buscar arquivos por nome na pasta artefatos, com teste"),
         config=config,
     )
-    assert final["fluxo_trabalho"]["fase"] == "ship"
-    assert "🛳️" in final["mensagens"][-1].content
+    # após o ship, o UAT (G2) pergunta o critério → responde e conclui
+    final2 = app.invoke(Command(resume="aprovado"), config=config)
+    assert final2["fluxo_trabalho"]["fase"] == "ship"
+    assert "🛳️" in final2["mensagens"][-2].content or "🛳️" in str(final2["mensagens"][-1].content)
+
+
+# ---------------------------------------------------------------------
+# G2 — UAT conversacional com estado persistente
+# ---------------------------------------------------------------------
+
+def test_uat_aprova_criterios_um_a_um(tmp_path):
+    """Entrega com 2 critérios → 2 perguntas de UAT (uma por execução),
+    respostas registradas com evidência e selo final 🧪."""
+    modelo = ModeloFake()
+    modelo.configurar([
+        _resposta_plano([
+            {"passo": "criar tool a", "objetivo": "entrega", "status": "pendente"},
+            {"passo": "criar tool b", "objetivo": "entrega", "status": "pendente"},
+        ]),
+        chamada_tool("calculadora", {"expressao": "1 + 1"}, id_chamada="call_ua"),
+        AIMessage(content="Entregue."),
+        _resposta_verify_entrega([
+            {"indice": 0, "verificado": True, "evidencia": "tool a roda"},
+            {"indice": 1, "verificado": True, "evidencia": "tool b roda"},
+        ]),
+        _resposta_licoes([]),
+    ])
+    app, cfg = _app(tmp_path, modelo)
+    r = _executar_entrega_com_uat(
+        app, cfg,
+        "adicione o pacote de ferramentas a e b com teste e push",
+        ["aprovado", "aprovado"],
+    )
+    assert "🧪" in str(r["mensagens"][-1].content)
+    uat = r["uat"]
+    assert len(uat) == 2
+    assert all(u["resultado"] == "aprovado" for u in uat)
+    assert uat[0]["evidencia"] == "aprovado"
+    assert r["gaps"] == []
+
+
+def test_uat_reprovado_vira_gap_e_proximo_turno_retoma(tmp_path):
+    """Critério reprovado → gap no estado; o próximo turno de entrega (OUTRA
+    thread) carrega o gap como contexto do plano (persistência na Store)."""
+    modelo = ModeloFake()
+    modelo.configurar([
+        _resposta_plano([{"passo": "criar tool de logs", "objetivo": "entrega",
+                          "status": "pendente"}]),
+        chamada_tool("calculadora", {"expressao": "2 + 2"}, id_chamada="call_g2"),
+        AIMessage(content="Entregue."),
+        _resposta_verify_entrega([{"indice": 0, "verificado": True,
+                                   "evidencia": "roda"}]),
+        _resposta_licoes([]),
+    ])
+    app, cfg = _app(tmp_path, modelo)
+    r1 = _executar_entrega_com_uat(
+        app, cfg,
+        "adicione a rotina de logs com teste e push",
+        ["reprovado: falta validar retorno"],
+    )
+    assert r1["gaps"], "critério reprovado deveria virar gap"
+    # próximo turno em OUTRA thread: o plano recebe o gap como contexto
+    espiao = ModeloEspiao(saida="plano minimo")
+    app2, cfg2 = _app(tmp_path, espiao)
+    config2 = {"configurable": {"thread_id": "outra-thread"}}
+    app2.invoke(
+        {"mensagens": [HumanMessage("adicione a correcao com teste e push")],
+         "metadados_sessao": {"thread_id": "outra-thread"}},
+        config=config2,
+    )
+    chamadas = " ".join(str(c) for c in espiao.chamadas)
+    assert "Gaps pendentes" in chamadas or "criar tool de logs" in chamadas
+
+
+def test_uat_persistido_entre_threads_sem_rede(tmp_path):
+    """UAT gravado na Store sobrevive a thread nova (novo app, mesmo banco):
+    o segundo UAT mescla o histórico, cada resposta via interrupt (zero LLM)."""
+    modelo = ModeloFake()
+    modelo.configurar([
+        _resposta_plano([
+            {"passo": "criar tool a", "objetivo": "entrega", "status": "pendente"},
+            {"passo": "criar tool b", "objetivo": "entrega", "status": "pendente"},
+        ]),
+        chamada_tool("calculadora", {"expressao": "3 + 3"}, id_chamada="call_px"),
+        AIMessage(content="Entregue."),
+        _resposta_verify_entrega([
+            {"indice": 0, "verificado": True, "evidencia": "a roda"},
+            {"indice": 1, "verificado": True, "evidencia": "b roda"},
+        ]),
+        _resposta_licoes([]),
+    ])
+    app, cfg = _app(tmp_path, modelo)
+    r1 = _executar_entrega_com_uat(
+        app, cfg,
+        "adicione o pacote de ferramentas a e b com teste e push",
+        ["aprovado", "aprovado"],
+    )
+    assert len(r1["uat"]) == 2
+    # novo app com o MESMO banco → UAT anterior recuperado da Store
+    modelo2 = ModeloFake()
+    modelo2.configurar([
+        _resposta_plano([{"passo": "criar rotina de limpeza", "objetivo": "entrega",
+                          "status": "pendente"}]),
+        chamada_tool("calculadora", {"expressao": "4 + 4"}, id_chamada="call_py"),
+        AIMessage(content="Entregue."),
+        _resposta_verify_entrega([{"indice": 0, "verificado": True,
+                                   "evidencia": "limpeza roda"}]),
+        _resposta_licoes([]),
+    ])
+    app2, cfg2 = _app(tmp_path, modelo2)
+    r2 = _executar_entrega_com_uat(
+        app2, cfg2,
+        "adicione a rotina de limpeza com teste e push",
+        ["aprovado"],
+        thread_id="t-outra",
+    )
+    assert len(r2["uat"]) == 3, f"UAT deveria mesclar 2+1: {r2['uat']}"
