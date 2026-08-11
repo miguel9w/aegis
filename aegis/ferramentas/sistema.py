@@ -107,7 +107,9 @@ def ler_arquivo(caminho: str, limite: int = 4000) -> str:
         conteudo = alvo.read_text(encoding="utf-8", errors="replace")
         if len(conteudo) > limite:
             conteudo = conteudo[:limite] + f"\n… ({len(conteudo)} caracteres, truncado)"
-        return f"{alvo}\n---\n{conteudo}"
+        # C5: conteúdo de arquivo é DADO não confiável — marcado com a classificação
+        from ..seguranca import marcar_conteudo
+        return marcar_conteudo(f"{alvo}\n---\n{conteudo}", fonte=str(alvo))
     except ValueError as exc:
         return f"erro: {exc}"
 

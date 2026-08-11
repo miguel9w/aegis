@@ -19,6 +19,7 @@ from langchain_core.tools import tool
 
 from ..config import config
 from ..sandbox import ExecutorLocal
+from ..seguranca import marcar_conteudo
 
 # ---------------------------------------------------------------------
 # Cálculo seguro (sem eval arbitrário) — analisa a AST com whitelist
@@ -149,7 +150,8 @@ def buscar_web(consulta: str, max_resultados: int = 5) -> str:
         if trecho:
             bloco += f"\n   {trecho}"
         blocos.append(bloco)
-    return "\n\n".join(blocos)
+    # C5: resultados web são DADO não confiável — marcados com a classificação
+    return marcar_conteudo("\n\n".join(blocos), fonte="busca web")
 
 
 # ---------------------------------------------------------------------
@@ -174,7 +176,8 @@ def comando_sandbox(comando: str, timeout: int = 30) -> str:
     resultado = _executor.executar(comando, timeout=timeout)
     if resultado.erro:
         return f"ERRO_FERRAMENTA: {resultado.erro}"
-    return resultado.resumo()
+    # C5: a saída de um comando é DADO não confiável — marcada com a classificação
+    return marcar_conteudo(resultado.resumo(), fonte=f"comando: {comando}")
 
 
 # ---------------------------------------------------------------------

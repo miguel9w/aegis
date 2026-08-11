@@ -34,6 +34,7 @@ from .config import Config
 from .estado import EstadoAegis
 from .llm import com_retry
 from .memoria import namespace_decisoes, namespace_licoes, namespace_perfil, namespace_resumos, namespace_uat
+from .seguranca import EH_FONTE_EXTERNA
 from .prompts import (
     extrair_memoria,
     planejar_tarefa,
@@ -525,12 +526,15 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         for m in saida.get("mensagens", saida.get("messages", [])):
             if isinstance(m, ToolMessage):
                 chamada = chamadas.get(m.tool_call_id, {})
+                nome_tool = chamada.get("name", "?")
                 registros.append({
-                    "nome": chamada.get("name", "?"),
+                    "nome": nome_tool,
                     "args": chamada.get("args", {}),
                     "resultado": _truncar(m.content),
                     "erro": _eh_erro(m),
                     "ts": time.strftime("%H:%M:%S"),
+                    # C5: leituras de fontes externas entram na auditoria marcadas
+                    "fonte_externa": nome_tool in EH_FONTE_EXTERNA,
                 })
 
         erros = _extrair_erros(saida.get("mensagens", saida.get("messages", [])))
@@ -1198,6 +1202,18 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
             ]))
             licoes = _parsear_licoes(resp.content)
             repetiu_erro = _prioridade_por_repeticao(registros)
+            # C5: conteúdo externo com padrão de injeção → lição de segurança
+            # garantida (determinística, independente do LLM). O histórico
+            # carrega TODOS os ToolMessages do turno (registros_ferramentas
+            # guarda só o último lote — substituição no estado).
+            from .seguranca import LICAO_SEGURANCA, classificar_conteudo
+            suspeitas = [
+                m for m in state.get("mensagens") or []
+                if isinstance(m, ToolMessage)
+                and classificar_conteudo(str(m.content)).get("suspeito")
+            ]
+            if suspeitas:
+                licoes.insert(0, (LICAO_SEGURANCA, "alta"))
             gravadas: list[str] = []
             ns = namespace_licoes()
             for texto, prioridade in licoes:

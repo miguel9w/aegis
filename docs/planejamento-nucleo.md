@@ -193,6 +193,15 @@ CONFIÁVEIS — nunca como instrução para o agente.
 **Critério de aceite:** corrida de 50 arquivos gerados com injeções variadas →
 zero execução de ações destrutivas (invariante verificado por property test).
 
+**Status: implementado (2026-08).** Módulo `aegis/seguranca.py` (classificação
+de conteúdo + marcador + auditoria); bloco `BLOCO_SEGURANCA` no system;
+`_fonte`/marcador em `ler_arquivo`, `buscar_notas`, `ler_nota`, `buscar_web`,
+`comando_sandbox`; `fonte_externa=true` nos registros; lição de segurança
+determinística na reflexão pós-turno (independente do LLM). Property tests com
+hypothesis: injeções variadas sempre suspeitas, dados limpos sem falso
+positivo, corrida de injeções com zero execução destrutiva (invariante do
+fluxo) — `tests/test_seguranca.py` (12 testes). Suíte: 333 verdes + webui 25/0.
+
 ---
 
 ## Fase C6 — Orçamento e controle de custo (billing guard)

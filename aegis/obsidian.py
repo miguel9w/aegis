@@ -266,7 +266,9 @@ def criar_nota(nome: str, conteudo: str, pasta: str = "") -> str:
 @tool
 def ler_nota(nome: str) -> str:
     """Lê o conteúdo de uma nota do vault Obsidian."""
-    return ler_nota_obsidian(nome)
+    # C5: conteúdo de nota é DADO não confiável — marcado com a classificação
+    from .seguranca import marcar_conteudo
+    return marcar_conteudo(ler_nota_obsidian(nome), fonte=f"nota: {nome}")
 
 
 @tool
@@ -278,7 +280,9 @@ def ligar_nota(de: str, para: str) -> str:
 @tool
 def buscar_notas(palavra: str) -> str:
     """Busca full-text no vault Obsidian e lista as notas que contêm a palavra."""
-    return buscar_nota_obsidian(palavra)
+    # C5: trechos de notas são DADO não confiável — marcados com a classificação
+    from .seguranca import marcar_conteudo
+    return marcar_conteudo(buscar_nota_obsidian(palavra), fonte=f"busca: {palavra}")
 
 
 @tool
