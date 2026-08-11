@@ -171,6 +171,12 @@ class Config:
         self.comandos_path: Path = RAIZ / os.getenv(
             "AEGIS_COMANDOS", "config/dados/comandos.jsonl")
 
+        # --- Aprendizados (G4) — versionados + grafo de conhecimento ---
+        self.learnings_dir: Path = RAIZ / os.getenv(
+            "AEGIS_LEARNINGS_DIR", "docs/learnings")
+        self.grafo_path: Path = RAIZ / os.getenv(
+            "AEGIS_GRAFO", "config/dados/grafo_conhecimento.json")
+
         # --- Diversos ---
         self.dev: bool = _dev()
 

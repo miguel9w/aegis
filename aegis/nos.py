@@ -36,6 +36,7 @@ from .llm import com_retry
 from .memoria import namespace_decisoes, namespace_licoes, namespace_perfil, namespace_resumos, namespace_uat
 from .seguranca import EH_FONTE_EXTERNA, LICAO_SEGURANCA, classificar_conteudo, marcar_conteudo
 from .uso import custo_estimado, extrair_uso, somar_uso, total_tokens, verificar_orcamento
+from .aprendizados import GrafoConhecimento, bloco_markdown, classificar, nome_arquivo_sessao
 from .prompts import (
     extrair_memoria,
     planejar_tarefa,
@@ -1242,6 +1243,7 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
             if suspeitas:
                 licoes.insert(0, (LICAO_SEGURANCA, "alta"))
             gravadas: list[str] = []
+            licoes_com_categoria: list[tuple[str, str, str]] = []
             ns = namespace_licoes()
             for texto, prioridade in licoes:
                 if repetiu_erro or prioridade == "alta":
@@ -1258,6 +1260,38 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                     },
                 )
                 gravadas.append(texto)
+                # G4: classificação em 4 categorias para o grafo + arquivo
+                licoes_com_categoria.append(
+                    (texto, prioridade_efetiva, classificar(texto)))
+            # G4: grafo de conhecimento + documento versionado (só com lições)
+            if licoes_com_categoria:
+                try:
+                    ferramenta_turno = (
+                        registros[-1].get("nome", "") if registros else "")
+                    fase_turno = str(
+                        (state.get("fluxo_trabalho") or {}).get("fase", ""))
+                    erro_turno = next(
+                        (str(r.get("resultado", ""))[:80] for r in registros
+                         if "ERRO_FERRAMENTA" in str(r.get("resultado", ""))),
+                        "")
+                    grafo = GrafoConhecimento(cfg.grafo_path)
+                    for texto, prioridade, categoria in licoes_com_categoria:
+                        grafo.adicionar(
+                            categoria, texto,
+                            ferramenta=ferramenta_turno,
+                            fase=fase_turno, erro=erro_turno)
+                    grafo.salvar()
+                    pasta = cfg.learnings_dir
+                    pasta.mkdir(parents=True, exist_ok=True)
+                    with open(
+                        pasta / f"{nome_arquivo_sessao(cfg.thread_id)}.md",
+                        "a", encoding="utf-8",
+                    ) as fh:
+                        fh.write(bloco_markdown(licoes_com_categoria) + "\n")
+                except Exception:  # noqa: BLE001 — grafo nunca derruba a reflexão
+                    if cfg.dev:
+                        import traceback
+                        traceback.print_exc()
             return {"licoes_turno": gravadas, "uso_tokens": extrair_uso(resp)}
         except Exception:  # noqa: BLE001 — reflexão falha sem derrubar o fluxo
             if cfg.dev:

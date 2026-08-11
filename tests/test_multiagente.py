@@ -38,6 +38,9 @@ def _cfg(tmp_path) -> Config:
     c.thread_id = "t-multi"
     c.limiar_compressao = 100
     c.memoria_ativa = True
+    # G4: aprendizados fora do repo (evita poluir docs/learnings real)
+    c.learnings_dir = tmp_path / "docs" / "learnings"
+    c.grafo_path = tmp_path / "grafo.json"
     c.multiagente_ativos = True
     c.orquestracoes_path = tmp_path / "orquestracoes.jsonl"
     return c

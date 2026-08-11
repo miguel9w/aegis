@@ -41,6 +41,7 @@ config/dados/orquestracoes.jsonl
 # web UI/artefatos — dado gerado em runtime
 config/dados/artefatos/
 config/dados/comandos.jsonl
+config/dados/grafo_conhecimento.json
 webui/node_modules/
 
 # web ui — build gerado pelo servidor (garantirBuild) e deps

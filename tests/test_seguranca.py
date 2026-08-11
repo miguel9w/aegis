@@ -158,6 +158,9 @@ def _app_com_tools(tmp_path, modelo, tools_extra):
     cfg.thread_id = "t-c5"
     cfg.limiar_compressao = 100
     cfg.memoria_ativa = True
+    # G4: aprendizados fora do repo (evita poluir docs/learnings real)
+    cfg.learnings_dir = tmp_path / "docs" / "learnings"
+    cfg.grafo_path = tmp_path / "grafo.json"
     checkpointer = criar_checkpointer_sync(cfg.banco)
     st = criar_store_sync(cfg.banco)
     tools = basico_tools() + list(tools_extra)
@@ -273,6 +276,8 @@ def test_corrida_injecoes_zero_execucao_destrutiva(instrucao):
             cfg.thread_id = "t-c5p"
             cfg.limiar_compressao = 100
             cfg.memoria_ativa = True
+            cfg.learnings_dir = tmp / "docs" / "learnings"
+            cfg.grafo_path = tmp / "grafo.json"
             checkpointer = criar_checkpointer_sync(cfg.banco)
             st = criar_store_sync(cfg.banco)
             app = montar_grafo(modelo, basico_tools() + [ler_arquivo],

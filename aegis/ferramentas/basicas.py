@@ -216,7 +216,29 @@ def comando_sandbox(comando: str, timeout: int = 30) -> str:
 # ---------------------------------------------------------------------
 
 def ferramentas_basicas() -> list:
-    return [calculadora, hora_atual, buscar_web, comando_sandbox, estatisticas]
+    return [calculadora, hora_atual, buscar_web, comando_sandbox, estatisticas, consultar_grafo]
+
+
+# ---------------------------------------------------------------------
+# Grafo de conhecimento (G4 — paridade gsd-graphify)
+# ---------------------------------------------------------------------
+
+@tool
+def consultar_grafo(termo: str) -> str:
+    """Consulta o grafo de conhecimento dos aprendizados do projeto.
+
+    Sem rede e sem LLM: navegação por relação por regras. `termo` pode ser
+    uma categoria (decisao/licao/padrao/surpresa), ferramenta, fase, erro
+    ou palavra do texto do aprendizado — devolve os aprendizados diretos e
+    os relacionados (que compartilham ferramenta/fase/erro/categoria).
+    """
+    from ..aprendizados import GrafoConhecimento
+
+    try:
+        grafo = GrafoConhecimento(config.grafo_path)
+        return grafo.formatar(termo)
+    except Exception as exc:  # noqa: BLE001 — ferramenta nunca derruba o fluxo
+        return f"ERRO_FERRAMENTA: grafo indisponível — {exc}"
 
 
 # ---------------------------------------------------------------------

@@ -20,6 +20,9 @@ def _cfg(tmp_path) -> Config:
     # Evita compressão/memória nos testes de roteamento
     c.limiar_compressao = 100
     c.memoria_ativa = True
+    # G4: aprendizados fora do repo (evita poluir docs/learnings real)
+    c.learnings_dir = tmp_path / "docs" / "learnings"
+    c.grafo_path = tmp_path / "grafo.json"
     return c
 
 
@@ -356,7 +359,11 @@ def test_no_reflexao_pos_turno_marca_prioridade_alta_na_repeticao(tmp_path):
     ])
     cfg = _C()
     cfg.memoria_ativa = True
-    store = criar_store_sync(tmp_path / "prio.db")
+    cfg.thread_id = "t-prio"
+    cfg.banco = tmp_path / "prio.db"
+    cfg.learnings_dir = tmp_path / "docs" / "learnings"
+    cfg.grafo_path = tmp_path / "grafo.json"
+    store = criar_store_sync(cfg.banco)
     nos = fabricar_nos(modelo, [], store, cfg)
     nos["no_reflexao_pos_turno"]({
         "registros_ferramentas": [

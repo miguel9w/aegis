@@ -380,6 +380,11 @@ opinião obrigatória — mesma ideia do `gsd-review` de cruzar agentes).
 
 ## Fase G4 — Aprendizados estruturados e versionados + grafo de conhecimento
 
+**Status: ✅ implementado (2026-08)** — `aegis/aprendizados.py` (classificação
+em 4 categorias + grafo de conhecimento) + nó de reflexão gravando
+`docs/learnings/<sessao>.md` (versionado) e tool `consultar_grafo` +
+`tests/test_aprendizados.py` (9 testes) — commit a ser fechado.
+
 **Objetivo:** elevar C1: além da Store, o agente grava aprendizados em 4
 categorias ESTRUTURADAS (decisões, lições, padrões, surpresas — igual ao
 `LEARNINGS.md` do GSD) em artefatos versionados, e mantém um grafo de
