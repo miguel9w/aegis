@@ -331,9 +331,10 @@ O desacoplamento já permite (sem code change estrutural):
 
 ## 🗺️ Roteiro do núcleo — 23 fases
 
-Plano completo e detalhado (objetivo, mudanças de estado/grafo, testes e
-critério de aceite por fase) em **`docs/planejamento-nucleo.md`**. Três
-blocos:
+Documentação técnica completa (arquivos, arquitetura, histórico e roadmap):
+**`docs/tecnical.md`**. Plano detalhado (objetivo, mudanças de estado/grafo,
+testes e critério de aceite por fase) em **`docs/planejamento-nucleo.md`**.
+Três blocos:
 
 | Bloco | Fases | Tema |
 |---|---|---|
