@@ -374,7 +374,1045 @@ extensions/
 
 ---
 
-## 7. Como o projeto é desenvolvido (padrão de entrega)
+## 7. Detalhamento por arquivo — funções, classes e tools registradas
+
+> Esta seção foi **extraída do código-fonte** (análise AST): para cada arquivo `.py`,
+> as funções, classes, métodos e ferramentas registradas. `**[@tool]**` = ferramenta
+> exposta ao LLM. Quando não há docstring, a assinatura é listada sem descrição.
+
+---
+
+### Pasta `Raiz do projeto`
+
+**`main.py`**
+
+- `novo_argumentos()`
+- `_aplicar_flags(args)` — Ajusta a configuração conforme as flags de linha de comando.
+- `listar_ferramentas(ferramentas)`
+- `listar_skills()`
+- `_exportar(formato, destino)` — Exporta trajetórias para dataset ShareGPT ou OpenAI (fine-tuning/RL).
+- `_rodar_gateway(porta)` — Serve o grafo via Webhook HTTP (mesma lógica da TUI, sem terminal).
+- `_rodar_agendador(intervalo, uma_vez)` — Loop do cron: executa agendamentos vencidos no grafo a cada intervalo.
+- `_montar_app_sync()` — Constrói o grafo com checkpointer síncrono (headless/testes).
+- `_montar_app_async()` — Constrói o grafo com checkpointer assíncrono (TUI — astream_events).
+- `_imprimir_resultado(resultado, cfg)` — Imprime o resultado de uma execução headless (painel + ferramentas).
+- `executar_headless(app, ferramentas, pergunta, cfg)` — Execução síncrona one-shot (também usada nos testes).
+- `main(argv)`
+
+### Pasta `aegis/`
+
+**`aegis/__init__.py`**
+
+- _(só docstring de pacote/módulo)_
+
+**`aegis/agendador.py`**
+
+- `_fuso_local()` — tzinfo local concreto, com fallback a UTC (evita dep. de tzdata).
+- `_agora()` — Instante atual (UTC). Isolado para permitir freeze em testes.
+- **classe `ArmazenamentoAgendamentos`** — Armazenamento de agendamentos em arquivo JSONL (lock por escrita).
+  - `carregar(self)`
+  - `salvar(self, itens)`
+  - `adicionar(self, item)`
+- `_parsear_quando(quando, agora)` — Converte um alvo legível em datetime tz-aware. Aceita: "agora", ISO datetime ("2026-08-05T09:00"), ou relativo ("em 5 mi
+- `_reagendar(item)` — Avança `quando_iso` conforme a frequência, se for recorrente.
+- `agendar_tarefa(tarefa, quando, frequencia, caminho, agora)` — Cria um agendamento e retorna o registro (com `id`).
+- `listar(caminho, estados)` — Lista agendamentos ativos (não concluídos/cancelados), por instante.
+- `cancelar(agend_id, caminho)` — Cancela um agendamento pelo id. Retorna False se não encontrar.
+- `vencidos(agora, caminho)` — Agendamentos 'agendado' com instante alvo <= `agora` (determinístico).
+- `_executar_um(agend, app)` — Executa a tarefa no grafo e devolve a resposta final.
+- `_notificar(webhook_url, agend)` — Notifica um webhook (callback) sobre a conclusão de um agendamento.
+- `executar_vencidos(app, agora, caminho, webhook_url)` — Executa todos os vencidos no grafo e atualiza a persistência. Retorna a lista de agendamentos processados (concluídos, r
+- `agendar(tarefa, quando, frequencia)` **[@tool]** — Agenda uma tarefa para execução autônoma futura (cron interno). Args: tarefa: o que executar (mensagem natural para o ag
+- `listar_agendamentos()` **[@tool]** — Lista os agendamentos ativos do cron interno.
+- `cancelar_agendamento(id_agendamento)` **[@tool]** — Cancela um agendamento pendente pelo seu id.
+
+**`aegis/aprendizados.py`**
+
+- `classificar(texto)` — Classifica um aprendizado em uma das 4 categorias, por regras.
+- `nome_arquivo_sessao(thread_id)` — Nome de arquivo seguro a partir do thread_id (sanitização).
+- `bloco_markdown(licoes, ts)` — Bloco markdown das lições: [(texto, prioridade, categoria)].
+- **classe `GrafoConhecimento`** — Grafo consultável de aprendizados (entidades + relações derivadas). Persistido em JSON. Extração por regras — sem LLM, s
+  - `adicionar(self, categoria, texto, ferramenta, fase, erro)` — Registra um aprendizado no grafo; retorna o id da entidade.
+  - `consultar(self, termo, limite)` — Entidades que casam `termo` + relacionadas (mesmos atributos).
+  - `formatar(self, termo, limite)` — Consulta formatada para a tool (sem rede).
+  - `salvar(self)`
+
+**`aegis/autorizacoes.py`**
+
+- `aprovar_comando(comando)` — Registra o comando exato como aprovado na sessão.
+- `comando_aprovado(comando)`
+- `aprovados()`
+- `limpar()`
+
+**`aegis/camel_kit.py`**
+
+- `pensar(passo_raciocinio)` **[@tool]** — Registra um passo de raciocínio e devolve a cadeia completa numerada.
+- `ver_pensamento()` **[@tool]** — Mostra a cadeia de raciocínio registrada até agora.
+- `_parsear_passos(texto)` — Converte '1. x 2. y' ou '- x - y' numa lista de passos limpos.
+- `planejar_tarefa(objetivo, passos)` **[@tool]** — Cria (ou sobrescreve o plano atual) um plano de tarefas em passos (um por linha, '- x' ou '1. x').
+- `atualizar_plano(id, novo_status)` **[@tool]** — Atualiza o status de um passo do plano (pendente|executando|ok|cancelado).
+- `ver_plano()` **[@tool]** — Mostra o plano de tarefas atual com o progresso.
+- `_formatar_plano(plano)` — Formata um plano (passos + progresso) — função pura p/ reuso interno.
+- `anotar(nota)` **[@tool]** — Registra uma nota rápida no bloco de notas (histórico anexado).
+- `ver_notas(qtd)` **[@tool]** — Lista as últimas N notas registradas.
+
+**`aegis/cientificas.py`**
+
+- `_extrair_arxiv_id(url)` — 'http://arxiv.org/abs/2401.12345v2' → '2401.12345v2'.
+- `_normalizar_paper(entry)` — Constrói o dict normalizado a partir de um <entry> do Atom.
+- `parsear_arxiv_xml(texto)` — Faz parse do feed Atom do arXiv — função pura (sem rede).
+- `buscar_papers(consulta, n)` — Busca `n` papers por consulta (all:).
+- `buscar_paper_por_id(id_arxiv)` — Busca um único paper pelo id (ex.: '2401.12345v2').
+- `gerar_bibtex(paper)` — Entrada BibTeX determinística.
+- `citar_apa(paper)` — Citação APA 7 simplificada (determinística).
+- `_salvar_paper_biblioteca(paper)` — Adiciona o paper à biblioteca (dedupe por id). Retorna True se novo.
+- `buscar_papers_arxiv(consulta, n)` **[@tool]** — Busca papers na API do arXiv por consulta e lista título/autores/url.
+- `gerar_citacao_bibtex(id_arxiv)` **[@tool]** — Gera a entrada BibTeX de um paper já salvo na biblioteca (use salvar_paper antes).
+- `salvar_paper(id_arxiv)` **[@tool]** — Salva um paper (por id) na biblioteca e cria uma nota de leitura no vault.
+- `revisar_literatura(consulta, n)` **[@tool]** — Busca o arXiv e monta uma revisão de literatura com citações APA e BibTeX.
+
+**`aegis/config.py`**
+
+- **classe `ConfigError`** — Erro de configuração (ex.: chave de API ausente).
+- **classe `Config`** — Contém toda a configuração do Aegis.
+
+**`aegis/config_json.py`**
+
+- `carregar_config_json(nome_arquivo, padroes, caminho)` — Carrega `nome_arquivo` de `config/dados/` e faz merge sobre `padroes`. - Arquivo ausente ou inválido → retorna os padrõe
+
+**`aegis/contexto.py`**
+
+- `ler_contexto(caminho)` — Lê um arquivo de contexto textual de forma segura. Retorna "" se o arquivo não existir, for ilegível ou ficar acima do l
+- `contexto_do_projeto()` — Lê o contexto ativo do projeto conforme config.contexto_path.
+
+**`aegis/estado.py`**
+
+- `_merge_dict(atual, novo)` — Reducer de merge para dicionários escritos por nós em paralelo. Cada especialista grava a SUA chave (slot) no dict; o re
+- **classe `EstadoAegis`**
+
+**`aegis/exportador.py`**
+
+- `carregar_registros(diretorio)` — Carrega e mescla todos os `*.jsonl` do diretório, ordenados por `ts`.
+- `agrupar_por_thread(registros)` — Agrupa os registros por `thread_id`, preservando a ordem temporal.
+- `_converter_para_mensagens(registros)` — Converte registros de uma thread em pares {role, content} (OpenAI/ChatML).
+- `_anexar_notas(mensagens, notas)` — Anexa notas de ferramenta pendentes à última mensagem do assistente.
+- `_para_sharegpt(mensagens)` — Converte pares {role, content} para o formato ShareGPT {from, value}.
+- `exportar_sharegpt(diretorio, saida)` — Exporta todas as trajetórias como um arquivo JSON no formato ShareGPT. Retorna resumo: {arquivo, conversas, threads, pul
+- `exportar_openai(diretorio, saida)` — Exporta as trajetórias como JSONL no formato OpenAI (SFT/RLHF). Uma linha por conversa: {"messages": [...]}. Padrão usad
+- `_destino(saida, prefixo, sufixo)` — Define o caminho de saída padrão: `config/dados/datasets/<prefixo><sufixo>`.
+
+**`aegis/grafo.py`**
+
+- `montar_grafo(llm, ferramentas, checkpointer, store, cfg)` — Compila o grafo completo do Aegis. Args: llm: modelo ChatOpenAI (provedor cognitivo) ferramentas: ferramentas registrada
+- `mk_config(thread_id)` — Config de execução padrão (thread_id).
+- `executar_headless(app, pergunta, thread_id)` — Executa uma pergunta de forma síncrona (automação/testes).
+
+**`aegis/llm.py`**
+
+- `criar_llm(config, streaming, **extra)` — Cria um `ChatOpenAI` a partir da configuração (.env). `streaming=True` faz o modelo emitir eventos de token para a TUI (
+- `_eh_erro_transitorio(exc)` — True para erros 429/5xx / de conexão — merecem retry com backoff.
+- `_espera_retry(exc, base_espera, tentativa)` — Calcula o backoff, respeitando `Retry-After` quando presente.
+- `com_retry(fn, tentativas, base_espera)` — Executa `fn` com retry em erros transitórios (rate-limit / 5xx). Levanta o último erro caso ele não seja transitório ou 
+- `invocar_com_retry(llm, mensagens, **kwargs)` — Wraper que chama o modelo com retry e isolamento de falhas de cota.
+
+**`aegis/memoria.py`**
+
+- `_conexao(caminho, rotulo)` — Abre (e reutiliza) uma conexão SQLite persistente por componente. `rotulo` isola checkpointer ("ckpt") de store ("store"
+- `_setup(obj)` — Chama `setup()` de forma síncrona (aceitando coroutine, se houver).
+- `criar_checkpointer_sync(caminho)` — Checkpointer síncrono persistente (CLI/headless e testes).
+- `criar_checkpointer_async(caminho)` — Checkpointer assíncrono (TUI — necessário para `astream_events`). Nota: langgraph 1.x exige AsyncSqliteSaver (mais aiosq
+- `criar_store_sync(caminho)` — Store de longo prazo síncrona persistente.
+- `namespace_perfil()` — Namespace global do perfil do usuário (entre TODAS as sessões).
+- `namespace_memoria(thread_id)` — Namespace de memória por tópico/conversa.
+- `namespace_licoes()` — Namespace das lições aprendidas (memória procedimental global).
+- `namespace_handoffs()` — Namespace dos handoffs de trabalho pausado (retomável por thread).
+- `namespace_handoff_thread(thread_id)` — Namespace do handoff de UMA sessão (sem perfil de dados).
+- `namespace_resumos(thread_id)` — Namespace dos resumos incrementais por sessão (C4).
+- `namespace_decisoes(thread_id)` — Namespace das decisões-chave por sessão (C4).
+- `namespace_uat(projeto)` — UAT por PROJETO (não thread): sobrevive a `/clear` e a troca de sessão.
+
+**`aegis/memoria_camel.py`**
+
+- **classe `RegistroMemoria`** — Um registro da memória pontuada.
+  - `de_dict(cls, dados)`
+  - `as_dict(self)`
+- `_tokenizar(texto)` — Tokens minúsculos sem stopwords (para overlap lexical).
+- `pontuacao(conteudo, consulta_tokens, importancia, ts, agora, peso_importancia, meia_vida)` — Pontua um registro contra a consulta (recência + importância + overlap).
+- `carregar_memoria(caminho)` — Carrega os registros do arquivo ([] se ausente/inválido).
+- `salvar_memoria(registros, caminho, n_max)` — Grava os registros (limitados a n_max, do mais recente para o antigo).
+- `consultar_topk(consulta, registros, k, caminho, agora, peso_importancia)` — Top-k registros por pontuação contra `consulta` (ordem decrescente).
+- `registrar_memoria_camel(conteudo, importancia, fonte)` **[@tool]** — Registra um fato/nota na memória pontuada (importância 0-10, padrão 5).
+- `consultar_memoria_camel(consulta, k)` **[@tool]** — Consulta os k registros mais relevantes da memória pontuada para a consulta.
+- `esquecer_memoria_camel(id_registro)` **[@tool]** — Remove um registro da memória pelo seu id.
+
+**`aegis/memoria_tool.py`**
+
+- `definir_store(store)` — Vincula a Store de longo prazo à ferramenta de memória explícita.
+- `_fatos_todos()` — Chaves dos fatos gravados em ("aegis", "fatos").
+- `gerenciar_memoria(acao, conteudo, chave, alvo)` **[@tool]** — Grava, esquece ou lista memória de longo prazo de forma EXPLÍCITA e durável. - acao: "salvar" grava um fato; "esquecer" 
+
+**`aegis/multiagente.py`**
+
+- **classe `Dominio`** — Registro de um domínio multiagente.
+- `classificar_dominio(pergunta, limiar)` — Classifica a pergunta em um domínio por regras (zero LLM, rápido). Cada gatilho presente soma 1 ponto; vence o domínio c
+- `divisao_do_dominio(dominio, pergunta, max_especialistas)` — Monta os slots do domínio (template determinístico).
+- `parsear_veredito(texto)` — Parse tolerante do JSON de veredito do avaliador (estilo APF).
+- `_registrar_jsonl(cfg, dominio, divisao)` — Auditoria em config/dados/orquestracoes.jsonl (base para cache F3).
+- `montar_subgrafo_dominio(dominio, llm, ferramentas, cfg)` — Compila o subgrafo stateless de um domínio (especialistas + avaliador). Estrutura: START → no_fanout (Send ×N) → no_slot
+- `montar_orquestrador(cfg)` — Monta o nó orquestrador (classificação por regras) e sua rota.
+- `montar_multiagente(cfg)` — Monta orquestrador + rota multiagente para o wire do grafo principal. A rota mapeia o domínio decidido no turno para o n
+- `obter_subgrafo(dominio, llm, ferramentas, cfg)` — Compila (ou reusa) o subgrafo compilado de um domínio.
+
+**`aegis/nos.py`**
+
+- **classe `_CapturaRaciocinio`** — Coleta o `reasoning_content` dos chunks do stream (DeepSeek/Zen). O DeepSeek em modo thinking EMITE o raciocínio nos chu
+  - `on_llm_new_token(self, token, chunk, **kwargs)`
+- `_eh_erro(mensagem)` — True se a mensagem de ferramenta indica falha (prefixo de erro).
+- `_parsear_json_fatos(texto)` — Faz parse tolerante do JSON de fatos retornado pelo LLM.
+- `_parsear_licoes(texto)` — Parse tolerante do JSON de lições: [(texto, prioridade)] (máx. 3).
+- `_prioridade_por_repeticao(registros)` — True se a MESMA ferramenta falhou ≥2× com o mesmo erro no turno. Repetição de falha é o sinal mais forte de lição duráve
+- `_precisa_plano(pergunta)` — Heurística barata (zero LLM) de complexidade da tarefa. Ativa planejamento quando a pergunta pede uma ENTREGA multi-pass
+- `_eh_pedido_entrega(pergunta)` — Zero-LLM: pedido de ENTREGA (código/artefato/documento) vs. pergunta informativa. Verbo de entrega + sinal de repo; pref
+- `_eh_ambiguo(pergunta)` — Zero-LLM: pedido de entrega sem especificação (detalhes de execução) → discuss deve perguntar antes de planejar.
+- `_parsear_vereditos_entrega(texto, total)` — Parse tolerante do JSON do verify goal-backward (G1): lista de {indice, verificado, evidencia} na ordem dos critérios.
+- `_parsear_revisao(texto)` — Parse tolerante do JSON do revisor por pares (G3): lista de {item, veredito, apontamento}. Item ausente na resposta = re
+- `_parsear_plano(texto)` — Parse tolerante do JSON do plano: lista de {passo, objetivo} (máx. 6).
+- `_bloco_plano(plano)` — Renderiza o plano ativo com progresso para injeção no system.
+- `_parsear_verificacao(texto)` — Parse tolerante do JSON de verificação: {"veredito", "evidencias"}. Retorna None quando não há JSON válido — o fluxo tra
+- `fabricar_nos(llm, ferramentas, store, cfg, prompt_fn)` — Cria todos os nós do grafo com o contexto injetado. `prompt_fn` (opcional) substitui o prompt de sistema padrão — usado 
+
+**`aegis/obsidian.py`**
+
+- `extrair_links(texto)` — Destinos dos [[wikilinks]] (alias após '|' é descartado).
+- `extrair_tags(texto)` — Tags `#tag` (sem duplicatas, fora de links).
+- `_notas_no_vault(vault)` — {nome_da_nota: caminho} — varre todos os .md do vault (recursivo).
+- `_titulo(texto, padrao)` — Título exibido: primeiro '# Título' do arquivo, senão o nome base.
+- `recalcular_indice(vault)` — Índice: por nota — links emitidos, tags e backlinks (derivados).
+- `_carregar_indice(vault)` — Lê indice.json se possível; senão recalcula (nunca fica obsoleto).
+- `_nome_arquivo(nome)` — Nome amigável → nome de arquivo seguro (espaços viram _, sem barras).
+- `_caminho_nota(nome, vault)` — Localiza em qualquer subpasta (nome exato ou nome de arquivo seguro).
+- `criar_nota_obsidian(nome, conteudo, pasta)`
+- `ler_nota_obsidian(nome)`
+- `ligar_nota_obsidian(de, para)`
+- `buscar_nota_obsidian(palavra)`
+- `notas_por_tag_obsidian(tag)`
+- `notas_conectadas_obsidian(nome)`
+- `listar_obsidian_vault()`
+- `limpar_vault(confirmar)` — Apaga as notas do vault (exige confirmar=True).
+- `criar_nota(nome, conteudo, pasta)` **[@tool]** — Cria uma nota markdown no vault Obsidian do Aegis.
+- `ler_nota(nome)` **[@tool]** — Lê o conteúdo de uma nota do vault Obsidian.
+- `ligar_nota(de, para)` **[@tool]** — Cria um [[wikilink]] bidirecional entre duas notas do vault.
+- `buscar_notas(palavra)` **[@tool]** — Busca full-text no vault Obsidian e lista as notas que contêm a palavra.
+- `notas_por_tag(tag)` **[@tool]** — Lista as notas do vault que têm uma determinada tag (#tag).
+- `notas_conectadas(nome)` **[@tool]** — Mostra o grafo local da nota: links emitidos, backlinks e tags.
+- `listar_obsidian()` **[@tool]** — Lista todas as notas do vault Obsidian em árvore por subpasta.
+- `limpar_obsidian(confirmar)` **[@tool]** — Apaga todas as notas do vault Obsidian (exige confirmar=True).
+
+**`aegis/papeis.py`**
+
+- **classe `Papel`** — Persona configurável: nome, descrição, identidade, instruções e foco.
+- `_copiar_padrao()` — Cópia profunda dos papéis padrão (para não mutar o catálogo original).
+- `carregar_papeis(caminho)` — Carrega o catálogo de papéis: padrões + extensões de `papeis.json`. - `"substituir_padrao": true` → usa SOMENTE os papéi
+- `resolver_papel(nome, papeis)` — Resolve `nome` (case-insensitive) contra o catálogo de papéis.
+- `_carregar_estado(caminho)` — JSON de estado (papel_ativo/tarefa_atual) com fallback a `None`.
+- `ler_papel_ativo(caminho)` — Nome do papel ativo (None se nenhum).
+- `ler_tarefa_atual(caminho)` — Tarefa especificada em `tarefa_atual.json` (None se ausente).
+- `montar_bloco_personalidade()` — Bloco injetável no sistema: papel ativo + tarefa especificada (vazio "").
+- `definir_papel(nome)` **[@tool]** — Define o papel ativo do agente (ex.: pesquisador, redator, planejador). Retorna a identidade ativada.
+- `ver_papel()` **[@tool]** — Mostra o papel ativo do agente e sua identidade/instruções.
+- `listar_papeis()` **[@tool]** — Lista todos os papéis disponíveis no catálogo.
+- `especificar_tarefa(objetivo, restricoes, criterios)` **[@tool]** — Especifica uma TAREFA formal para o agente executar (objetivo + restrições + critérios de sucesso).
+- `estruturar_tarefa(texto_livre)` **[@tool]** — Converte descrição livre em tarefa estruturada (objetivo; restrições; critérios).
+- `_parsear_texto_tarefa(texto)` — Heurística determinística: objetivo na 1ª parte; restrições/critérios por marcadores.
+
+**`aegis/plugins.py`**
+
+- `_executar_registrar(mod, nome_arq, ferramentas)` — Chama `registrar()` do módulo e coleta as ferramentas.
+- `_importar(nome, caminho)` — Importa um módulo de arquivo e o registra no sys.modules.
+- `_nome_modulo(stem)` — Nome plano e único no sys.modules (reload confiável sem pacote pai).
+- `carregar_plugins(diretorio)` — Importa todos os plugins e coleta as ferramentas expostas por `registrar()`.
+- `recarregar_plugins(diretorio)` — Recarrega os plugins (re-importa o código atualizado do disco). Cada plugin é re-importado com um spec novo, aplicando m
+- `erros_carregamento()` — Retorna erros de plugins que falharam ao carregar (para auditoria).
+
+**`aegis/prompts.py`**
+
+- `sistema(perfil, resumo, ferramentas, metadados)` — Monta o prompt de sistema completo (identidade + contexto + ferramentas).
+- `reflexao_auto_correcao()` — Prompt do nó de reflexão: analisar erro de ferramenta e reformular.
+- `resumir_historico()` — Prompt do nó de compressão: resumir mensagens antigas.
+- `extrair_memoria()` — Prompt do nó de memória: extrair fatos duráveis do perfil do usuário.
+- `reflexao_pos_turno()` — Prompt do nó de reflexão pós-turno (C1): extrair lições duráveis.
+- `planejar_tarefa()` — Prompt do nó de planejamento (C2): quebrar tarefa complexa em passos.
+- `replanejar_tarefa()` — Prompt do nó de replanejamento (C2): ajustar plano após falha de etapa.
+- `verificar_resposta()` — Prompt do nó de verificação (C3): conferir a resposta contra evidências.
+- `resumir_sessao()` — Prompt da memória estrutural (C4): resumo incremental + decisões.
+- `sistema_pesquisador()` — Prompt do subagente PESQUISADOR (persona de pesquisa profunda).
+- `sistema_redator()` — Prompt do subagente REDATOR (persona de escrita longa e estruturada).
+- `sistema_especialista(dominio, slot, papel)` — Prompt de um nó ESPECIALISTA do subgrafo multiagente. O especialista recebe apenas a SUA fatia da tarefa (slot) e a sua 
+- `sistema_integrador()` — Prompt do nó INTEGRADOR: consolida os rascunhos dos especialistas.
+- `sistema_avaliador(dominio)` — Prompt do nó AVALIADOR: veredito estruturado sobre o artefato. Deve responder ESTRITAMENTE um JSON com as chaves: status
+- `verificar_entrega()` — Prompt do verify goal-backward da entrega (G1): cada critério de aceite conferido contra as evidências reais da execução
+- `revisar_entrega(checklist)` — Prompt do REVISOR por pares (G3): segunda opinião obrigatória antes do ship — cada item do checklist de normas julgado c
+
+**`aegis/prompts_avancados.py`**
+
+- **classe `PromptFormatoErro`** — Erro de formato ou uso dos prompts avançados (APF).
+- `sanitizar_json5(texto)` — Remove comentários (`//`, `#`) e vírgulas pendentes fora de strings. Mantém intacto o conteúdo de qualquer string JSON (
+- `_validar_ficha(ficha, origem)` — Valida e normaliza uma ficha bruta (do JSON). Erros viram PromptFormatoErro.
+- `carregar_prompts_avancados()` — Carrega e valida todas as fichas `.apf` válidas do diretório config. Fichas com erro são ignoradas (não derrubam o agent
+- `erros_de_carga()` — Motivos das fichas rejeitadas na última chamada de carga.
+- `_formatar_variado(valor, variaveis)` — Serializa `formato_saida` (str ou dict) já interpolado.
+- `compilar_prompt(nome, extras)` — Compila uma ficha em blocão final (prompt avançado injetável).
+- `listar_prompts()` — Lista as fichas válidas (id, versão, descrição) + avisos de erro.
+- `ver_prompt(nome)` — Mostra o bloco compilado de um prompt, marcando o ativo.
+- `prompt_ativo_id()` — Id do prompt avançado ativo, ou `None` se nenhum.
+- `prompt_ativo_compilado()` — Bloco compilado do prompt ativo; "" se nenhum/indisponível.
+- `usar_prompt(nome)` — Ativa um prompt avançado (persiste o id). `nenhum` desativa.
+- `desativar_prompt()` — Desativa o prompt avançado atual.
+- `listar_prompts_avancados()` **[@tool]** — Lista os prompts avançados (APF) disponíveis (id, versão, descrição).
+- `usar_prompt_avancado(nome)` **[@tool]** — Ativa um prompt avançado por id (nome "nenhum" desativa).
+- `ver_prompt_avancado(nome)` **[@tool]** — Mostra o conteúdo compilado de um prompt avançado.
+
+**`aegis/recuperacao.py`**
+
+- `definir_store(store)` — Vincula a Store de longo prazo às ferramentas de memória.
+- `definir_thread(thread_id)` — Vincula o thread ativo às ferramentas de memória (C4).
+- `_itens_do_store()` — Recupera textos da Store (perfil global + memórias por tópico).
+- `_itens_das_skills()` — Extrai nome + conteúdo das habilidades registradas.
+- `_idf(corpus)` — Inverso de frequência documental — destaca termos raros/distintivos.
+- `_pontuar(consulta, doc, idf)` — Soma IDF dos tokens da consulta presentes no documento.
+- `pesquisar_memoria(consulta, limite)` **[@tool]** — Busca fatos e preferências do usuário na memória de longo prazo (Store) e nos resumos de habilidades (extensions/skills/
+- `recuperar_licoes(store, consulta, limite)` — Recupera lições aprendidas relevantes à consulta (mesmo IDF do RAG-lite). Retorna um bloco formatado para injeção no pro
+- `_nivel(secao, conteudo, teto)` — Monta um nível do recall; corta por teto de caracteres quando preciso.
+- `recuperar_contexto_para_system(store, thread_id, consulta, teto)` — Recall hierárquico para injeção no system: perfil → lições → resumo → decisões. Cada nível é cortado pelo teto; a ORDEM 
+- `recuperar_contexto(assunto, escopo_sessao, limite_por_nivel)` **[@tool]** — Recupera o contexto estruturado do Aegis para a tarefa atual: perfil do usuário → lições aprendidas → resumo da sessão →
+
+**`aegis/sandbox.py`**
+
+- **classe `ResultadoExecucao`** — Resultado de uma execução de comando.
+  - `sucesso(self)`
+  - `resumo(self, limite)`
+- **classe `Executor`** — Interface base de sandbox.
+  - `executar(self, comando, timeout, cwd)` — Executa `comando` e devolve o resultado. Nunca deve lançar na operação.
+- **classe `ExecutorLocal`** — Executa comandos como subprocess local, com timeout e captura.
+  - `executar(self, comando, timeout, cwd)`
+- `motivo_denylist(comando)` — Primeiro padrão proibido encontrado no comando, ou None.
+- **classe `ExecutorDocker`** — Sandbox via container efêmero (`docker run --rm`). Rede isolada por padrão (`--network=none`), volume dos artefatos em `
+  - `executar(self, comando, timeout, cwd)`
+- **classe `ExecutorSSH`** — Sandbox via host remoto (`ssh -o BatchMode=yes`, sem senha interativa). Host/usuário vêm do `.env` (`AEGIS_SSH_HOST`/`AE
+  - `executar(self, comando, timeout, cwd)`
+- `criar_executor(nome, cfg)` — Fábrica de executors — troca de backend sem tocar no grafo. `cfg` (opcional, `aegis.config.Config`) fornece imagem docke
+
+**`aegis/seguranca.py`**
+
+- `classificar_conteudo(texto)` — Classifica um texto externo quanto a padrões de instrução embutida. Returns: ``{"suspeito": bool, "padroes": [rótulos...
+- `marcar_conteudo(texto, fonte)` — Anexa o marcador de classificação e a ``_fonte`` ao resultado. O resultado das ferramentas de leitura SEMPRE carrega o m
+
+**`aegis/sessoes.py`**
+
+- `_data_iso(ts)` — Extrai a parte de data (AAAA-MM-DD) de um timestamp ISO; fallback.
+- **classe `Sessao`** — Uma sessão = um dia + uma thread_id (recorte de troca).
+  - `adicionar(self, tipo, conteudo, ts)`
+  - `texto(self)`
+- `_ler_trajetorias(diretorio)` — Lê todos os JSONL de trajetória e monta sessões (thread+dia).
+- `_tokens(frase)` — Tokeniza, remove acentos e margessa a STOPWORDS.
+- `_ranquear(consulta, sessao)` — Escore por cobertura de tokens + bônus de frequência (IDF-like).
+- `_trecho_com(query, sessao)` — Retorna a 1ª mensagem da sessão que contém a consulta (ou a última).
+- `_marcadores(sessao)` — Primeiras e últimas 3 mensagens (marcador de braço), como no Hermes.
+- **classe `SessoesIndex`** — Índice em memória (recuperável) sobre as trajetórias de um diretório.
+  - `descobrir(self, consulta, limite)` — Top-N sessões ranqueadas por relevância, com trecho destacado.
+  - `rolar(self, sessao_id, mensagem, janela)` — Janela de mensagens ao redor de ``mensagem`` (scroll).
+  - `navegar(self, limite)` — Sessões recentes (data desc), com prévia, ignorando fontes automáticas.
+- `pesquisar_sessoes(consulta, sessao, mensagem, janela, limite)` **[@tool]** — Pesquisa em conversas ANTERIORES armazenadas nas trajetórias do agente. Use quando a resposta depender de algo já dito e
+
+**`aegis/skills.py`**
+
+- `_parsear_frontmatter(texto)` — Extrai frontmatter (name/description) e o corpo do SKILL.md.
+- `carregar_skills(diretorio)` — Varre `<diretorio>/**/SKILL.md` e retorna {nome_registrado: {"descricao", "conteudo", "caminho"}}.
+- `criar_skill_path(diretorio, nome, descricao, conteudo)` — Valida e grava uma habilidade no padrão agentskills.io. Retorna o caminho.
+- `ferramentas_skills(habilidades)` — Cria ferramentas `usar_skill_<nome>` para cada habilidade carregada.
+- `carregar_e_expor(diretorio)` — Le as habilidades e devolve as ferramentas correspondentes.
+
+**`aegis/slash.py`**
+
+- `parsear_slash(texto)` — Splita '/nome arg' (None se não for slash).
+- `executar_slash(nome, arg)` — Execute o comando e devolve o texto de resposta.
+
+**`aegis/subagentes.py`**
+
+- `_resposta_final(resultado)` — Extrai a última AIMessage com conteúdo (a resposta final do subagente).
+- `criar_subagente(nome, prompt, ferramentas, cfg, llm)` — Compila um subagente (subgrafo stateless) com o loop cognitivo do núcleo.
+- `_ferramentas_pesquisador()` — Subconjunto de ferramentas do pesquisador: busca + cálculo + memória.
+- `configurar_subagentes(llm, cfg)` — Constrói e registra os subagentes especialistas no registrador global.
+- `_executar(nome, pergunta, contexto)` — Invoca um subagente registrado com a pergunta (e contexto opcional).
+- `delegar_pesquisa(pergunta, contexto)` **[@tool]** — Delega uma pesquisa profunda ao subagente PESQUISADOR. Use para perguntas complexas que exigem buscas na web, cruzamento
+- `delegar_redacao(tarefa)` **[@tool]** — Delega a produção de um texto longo ao subagente REDATOR. Use para escrever/reescrever conteúdo estruturado (artigos, re
+
+**`aegis/tarefas.py`**
+
+- **classe `TarefasStore`** — Lista de tarefas ordenada por prioridade (posição = prioridade).
+  - `escrever(self, itens, merge)` — Substitui (ou faz merge na) da lista. Cada item: id, conteudo, status.
+  - `listar(self)`
+  - `ativas(self)` — Pendente/executando (para re-injeção pós compressão).
+  - `formato_para_reinjecar(self)` — Bloco a anexar após uma compressão; vazio se não há ativas.
+  - `limpar(self)`
+  - `_atualizar_item(self, item_id, conteudo, status)` — Insere novo item ou atualiza o existente (reseta status se conteúdo mudou).
+- `resumo_ativo_para_reinjecao()` — Export para o nó de compressão (os.py). Retorna '' quando não há ativas.
+- `tarefas(tarefas)` **[@tool]** — Lista de tarefas do agenâte (planejamento e acompanhamento de progresso). Use para decompor uma tarefa complexa em passo
+
+**`aegis/trajetoria.py`**
+
+- **classe `Trajetoria`** — Registrador de trajetórias em JSONL, por dia de execução.
+  - `registrar(self, thread_id, tipo, dados)` — Grava um registro JSONL com timestamp e thread de origem.
+  - `registrar_mensagem_usuario(self, thread_id, conteudo)` — Registra a mensagem do usuário (usada pelo exportador ShareGPT/RL).
+  - `hook(self, thread_id)` — Retorna um callable pronto para receber cada evento do stream.
+
+**`aegis/tui.py`**
+
+- **classe `TuiAegis`** — Interface terminal interativa (Textual) em estilo Hermes.
+  - `compose(self)`
+  - `on_mount(self)`
+  - `chat(self)`
+  - `painel(self)`
+  - `status(self)`
+  - `statusbar(self)`
+  - … (+14 métodos)
+
+**`aegis/uso.py`**
+
+- `extrair_uso(resposta)` — Uso de uma resposta OpenAI-compat → {entrada, saida, reasoning}. Lê `response_metadata.token_usage` (prompt_tokens/compl
+- `somar_uso(acumulado, novo)` — Reducer de soma por chave — `uso_tokens` acumula no estado (sessão).
+- `total_tokens(uso)` — Entrada + saída + reasoning de uma contabilidade.
+- `custo_estimado(uso, precos)` — Custo em R$ estimado pela tabela de preços (R$ por 1M de tokens).
+- `verificar_orcamento(uso_turno, uso_sessao, orcamento_turno, orcamento_sessao, precos)` — Corte? Estouro de tokens OU reais (turno ou sessão) → detalhes do corte. Orçamento vazio/ausente = sem teto. Retorna Non
+
+**`aegis/webui_bridge.py`**
+
+- `_montar_app_async(cfg)` — Caminho da TUI: checkpointer async + store sync (threads compartilhadas).
+- `montar_app(cfg)` — Compila o grafo uma única vez (processo persistente da ponte).
+- `_redigir(arv, profundidade)` — Recursivamente redige chaves sensíveis e trunca strings longas.
+- `_extrair_vereditos(saida)` — Vereditos do multiagente no estado final.
+- `_processar_evento(evento, est)` — Converte 1 evento cru do astream_events v2 em 0..N frames (contrato). `est` são os acumuladores do job: acumulado_texto,
+- `executar_job(app, texto, thread_id, job_id, cfg, dominio)` — Roda um turno e produz os frames do protocolo (token→…→fim/erro). `dominio` (opcional) força o subgrafo multiagente corr
+- `snapshot_estado(cfg)`
+- `listar_historico(app, limite)` — Threads do checkpointer (AsyncSqliteSaver — .alist no main thread). Nunca lança — [] em falha.
+- `snapshot_sugestoes()` — Catálogo das sugestões do input da web UI (`/`, `@`). Uma única fonte de verdade: os registros reais do Aegis (slash da 
+- `processar_comando(cmd, app)` — Processa um comando síncrono e devolve a linha JSON de resposta.
+- `_emitir_job(app, cmd)` — Executa um turno e imprime todos os frames (com flush).
+- `_rodar_job(app, cmd)` — Roda um turno como task independente (cancelável pelo comando `interromper`). O cancel emite `fim` com interrompido=True
+- `_main_loop()` — Loop principal da ponte — UM event loop para montagem + todos os jobs (o AsyncSqliteSaver prende conexões/locks ao loop;
+- `main()` — Ponto de entrada do processo (spawnado pelo Bun). Lê JSONL do stdin.
+
+### Pasta `aegis/ferramentas/`
+
+**`aegis/ferramentas/__init__.py`**
+
+- `carregar_ferramentas(config_obj)` — Monta o registro completo de ferramentas: built-ins + habilidades (extensions/skills/) + plugins (extensions/plugins/).
+- `recarregar_tudo(config_obj)` — Recarrega habilidades E plugins (auto-evolução em runtime).
+- `ferramentas_atuais()` — Retorna o registro em cache (ou carrega uma vez).
+- `avisos_carregamento()` — Avisos de plugins/skills com falha de carregamento.
+
+**`aegis/ferramentas/basicas.py`**
+
+- `_avaliar_ast(no)` — Avalia um nó da AST com segurança (whitelist de operações).
+- `calculadora(expressao)` **[@tool]** — Avalia uma expressão aritmética com segurança (sem eval arbitrário). Suporta + - * / // % **, parênteses e funções matem
+- `hora_atual(fuso)` **[@tool]** — Retorna a data e hora atuais em um fuso horário IANA (ex.: America/Sao_Paulo, UTC).
+- `buscar_web(consulta, max_resultados)` **[@tool]** — Busca na web (DuckDuckGo; usa SearXNG se AEGIS_SEARXNG_URL estiver configurado). Retorna uma lista numerada de resultado
+- `_executor_sandbox()` — Executor do backend configurado (`AEGIS_SANDBOX_BACKEND`).
+- `_auditar_comando(resultado, comando)` — Registra a execução em `comandos.jsonl` (backend + comando + código). Mesmo arquivo/estilo da auditoria da tool `comando
+- `comando_sandbox(comando, timeout)` **[@tool]** — Executa um comando shell em um sandbox isolado com timeout. Backend por `AEGIS_SANDBOX_BACKEND` (local | docker | ssh — 
+- `ferramentas_basicas()`
+- `consultar_grafo(termo)` **[@tool]** — Consulta o grafo de conhecimento dos aprendizados do projeto. Sem rede e sem LLM: navegação por relação por regras. `ter
+- `estatisticas(escopo, formato)` **[@tool]** — Métricas de uso: tokens, custo estimado e ferramentas executadas. Sem rede. `escopo="sessao"` → contabilidade da thread 
+
+**`aegis/ferramentas/pools.py`**
+
+- `registrar_pool(nome, nomes)` — Registra (ou substitui) uma pool de ferramentas em runtime.
+- `nomes_de_pool(pool)` — Nomes da pool (estendida se `pool` está entre as extras).
+- `pool_da_lista(ferramentas, dominio)` — Filtra uma lista de ferramentas pela pool do domínio. `dominio=None` devolve a lista inteira (agente principal). Nomes q
+- `nomes_das_ferramentas(ferramentas)` — Conjunto de nomes de uma lista de ferramentas (para validação).
+- `integridade(nomes_reais)` — Valida as pools contra a lista real de ferramentas. Retorna os nomes órfãos (referenciados em pools mas que não existem)
+
+**`aegis/ferramentas/relogio.py`**
+
+- `relogio(fusos)` **[@tool]** — Mostra a data e hora atuais em um ou mais fusos horários IANA (separados por vírgula), como um relógio mundial. Args: fu
+
+**`aegis/ferramentas/sistema.py`**
+
+- `_permitidos(escrita)` — Diretórios raiz permitidos. - escrita: APENAS `config.artefatos_dir` (sandbox real — o agente não mexe no projeto; o usu
+- `_resolver(caminho, escrita)` — Resolve o caminho (relativos contra a raiz do projeto) e valida o sandbox.
+- `_diferenciar(antes, depois, caminho)` — Diff unified entre dois conteúdos (vazio se idênticos).
+- `ler_arquivo(caminho, limite)` **[@tool]** — Lê um arquivo de texto (truncado). Use para inspecionar arquivos do projeto ou dos artefatos antes de editar. Args: cami
+- `escrever_arquivo(caminho, conteudo)` **[@tool]** — Cria ou sobrescreve um arquivo (somente dentro do projeto ou de `config/dados/artefatos/`). Retorna o diff unified das m
+- `editar_arquivo(caminho, trecho_antigo, trecho_novo)` **[@tool]** — Edita um arquivo substituindo UM trecho exato por outro (única ocorrência; se ambíguo, inclua mais contexto). Retorna o 
+- `listar_arquivos(diretorio, limite)` **[@tool]** — Lista os arquivos de um diretório do projeto/artefatos (árvore rasa limitada). Use para descobrir a estrutura antes de l
+- `_verificar_politica(comando)` — Retorna (permitido, motivo_de_recusa). Denylist sempre vence.
+- `_env_limpo()` — Ambiente do subprocesso SEM segredos (chaves/tokens nunca vazam).
+- `_registrar_comando(comando, confirmado, status, codigo, duracao_ms, motivo)` — Auditoria em config/dados/comandos.jsonl (gitignored).
+- `executar_comando(comando, confirmar)` **[@tool]** — Executa um comando do sistema (shell, com pipes/redirects) — SEM sandbox: roda com o seu usuário. Política de segurança 
+- `ferramentas_sistema()` — Lista de ferramentas do sistema (arquivo + comando).
+
+**`aegis/ferramentas/trabalho.py`**
+
+- `_thread_id()` — Thread ativa do processo (singleton `config` — mesmo padrão das tools `estatisticas`/`consultar_grafo`).
+- `_estado_da_thread(thread_id)` — Lê o estado mais recente da thread no checkpointer (conexão própria).
+- `pausar_trabalho(motivo)` **[@tool]** — Pausa o trabalho em andamento com um HANDOFF completo. Congela a fase atual do ciclo de entrega (G1): grava na memória d
+- `retomar_trabalho()` **[@tool]** — Retoma o trabalho pausado: devolve o context completo do handoff. Lê o handoff gravado por `pausar_trabalho` na thread a
+- `reverter_entrega(sha)` **[@tool]** — Reverte com segurança a última entrega (ou um commit específico). Executa `git revert --no-edit` no repositório do proje
+- `_tool_por_nome(nome)` — Localiza a função da ferramenta pelo nome no registro conhecido.
+- `replay_turno(limite)` **[@tool]** — Reproduz (forensics) o último turno passo a passo, SEM LLM. Re-executa os `registros_ferramentas` gravados no estado com
+- `ferramentas_trabalho()` — Registro das tools de trabalho (G5).
+
+### Pasta `aegis/gateways/`
+
+**`aegis/gateways/__init__.py`**
+
+- _(só docstring de pacote/módulo)_
+
+**`aegis/gateways/webhook.py`**
+
+- `processar_mensagem(app, thread_id, texto)` — Executa uma mensagem no grafo e devolve a resposta estruturada. É a ÚNICA função que o canal precisa conhecer — TUI, CLI
+- **classe `HandlerWebhook`** — Handler HTTP com acesso ao grafo via atributo de classe `app`.
+  - `do_POST(self)`
+  - `do_GET(self)`
+  - `log_message(self, format, *args)`
+- `iniciar_servidor(app, host, porta)` — Inicia o servidor webhook com o grafo injetado no handler.
+
+### Pasta `extensions/plugins/`
+
+**`extensions/plugins/exemplo_plugin.py`**
+
+- `contar_palavras(texto)` **[@tool]** — Conta o número de palavras e caracteres de um texto. Exemplo: "Olá mundo" -> 2 palavras, 9 caracteres.
+- `reverter_texto(texto)` **[@tool]** — Inverte a ordem dos caracteres de um texto (ex.: 'abc' -> 'cba').
+- `registrar()`
+
+### Pasta `tests/`
+
+**`tests/conftest.py`**
+
+- **classe `ModeloFake`** — ChatModel determinístico — respostas scriptadas, sem rede. Util para testar o roteamento do grafo sem depender de API. R
+  - `bind_tools(self, tools, **kwargs)`
+  - `configurar(self, saidas)` — Define a sequência de respostas da conversa simulada.
+- `chamada_tool(nome, args, id_chamada)` — Cria um AIMessage com tool_call para rotear para no_ferramentas.
+- `basico_tools()`
+
+**`tests/test_agendador.py`** — **9 testes**
+
+- `test_agendar_cria_registro(tmp_path)`
+- `test_vencidos_deterministico(tmp_path)`
+- `test_cancelar(tmp_path)`
+- `test_quando_relativo(tmp_path)`
+- **classe `AppStub`** — Substituto do grafo via `executar_headless` (contrato `.invoke()`).
+  - `invoke(self, entrada, config)`
+- `test_executar_vencidos_conclui(tmp_path)`
+- `test_recorrente_reagenda(tmp_path)`
+- `test_erro_nao_derruba_lote(tmp_path)`
+- `test_notificacao_webhook(tmp_path, monkeypatch)`
+- `test_ferramentas_registradas()`
+
+**`tests/test_aprendizados.py`** — **9 testes**
+
+- `test_classificar_quatro_categorias()`
+- `test_nome_arquivo_sessao_sanitiza()`
+- `test_bloco_markdown_traz_categorias_e_prioridades()`
+- `test_grafo_consulta_direta_e_relacionada(tmp_path)`
+- `test_grafo_persiste_e_recarrega(tmp_path)`
+- `test_reflexao_grava_arquivo_versionado_e_grafo(tmp_path)` — Critério de aceite: após vários turnos, docs/learnings/<sessao>.md tem as 4 categorias (acumuladas) e o grafo responde c
+- `test_reflexao_sem_ferramentas_nao_cria_arquivo(tmp_path, monkeypatch)` — Regressão do C1: turno sem ferramentas → nenhum arquivo novo.
+- `test_reflexao_com_lição_vazia_nao_grava_arquivo(tmp_path)` — LLM retorna sem lições → zero arquivo/grafo (zero custo).
+- `test_tool_consultar_grafo(monkeypatch, tmp_path)`
+
+**`tests/test_autorizacoes.py`** — **3 testes**
+
+- `test_aprovar_e_verificar()`
+- `test_aprovar_vazio_falha()`
+- `test_aprovacao_e_exata()`
+
+**`tests/test_backup.py`** — **3 testes**
+
+- `_executar_backup(destino)` — Roda backup.sh em destino temporário e devolve o diretório criado.
+- `test_backup_cria_diretorio_e_manifesto(tmp_path)`
+- `test_backup_copia_arquivos_essenciais(tmp_path)`
+- `test_backup_nao_vaza_arquivos_sensiveis(tmp_path)`
+
+**`tests/test_camel_kit.py`** — **14 testes**
+
+- `estado_tmp(tmp_path, monkeypatch)` — Aponta todos os arquivos de estado do kit para o tmp_path.
+- `test_pensar_encadeia_em_numerado(estado_tmp)`
+- `test_ver_pensamento_vazio(estado_tmp)`
+- `test_planejar_tarefa_cria_e_formata(estado_tmp)`
+- `test_planejar_com_numeracao(estado_tmp)`
+- `test_planejar_sem_passos_erro(estado_tmp)`
+- `test_atualizar_plano_status_ok(estado_tmp)`
+- `test_atualizar_plano_status_invalido(estado_tmp)`
+- `test_atualizar_plano_sem_plano(estado_tmp)`
+- `test_atualizar_passo_desconhecido(estado_tmp)`
+- `test_ver_plano_sem_plano(estado_tmp)`
+- `test_anotar_e_ver_notas(estado_tmp)`
+- `test_ver_notas_limitado(estado_tmp)`
+- `test_ver_notas_vazio(estado_tmp)`
+- `test_registro_do_toolkit_camel()`
+
+**`tests/test_cientificas.py`** — **10 testes**
+
+- `test_parsear_feed_atom()`
+- `test_parser_xml_invalido()`
+- `test_extrair_arxiv_id()`
+- `test_gerar_bibtex_deterministico()`
+- `test_citar_apa()`
+- `test_citar_apa_multiplos_autores()`
+- `test_salvar_na_biblioteca_dedupe(tmp_path, monkeypatch)`
+- `test_biblioteca_arquivo_invalido(tmp_path, monkeypatch)`
+- `test_buscar_papers_falha_offline(monkeypatch)` — Falha de rede → [] (o agente nunca cai por rede).
+- `test_buscar_paper_por_id_offline(monkeypatch)`
+
+**`tests/test_config_json.py`** — **7 testes**
+
+- `test_merge_json_sobrescreve_padroes(tmp_path)`
+- `test_fallback_quando_arquivo_ausente(tmp_path)`
+- `test_fallback_quando_json_invalido(tmp_path)`
+- `test_fallback_quando_raiz_nao_dict(tmp_path)`
+- `test_padroes_nao_sao_mutados_entre_chamadas(tmp_path)`
+- `test_modulos_leem_dos_json_de_config()` — Os hardcodes trocados refletem os valores dos arquivos de config.
+- `test_modulos_aceitam_override_dos_json(tmp_path, monkeypatch)` — Sobrescrevendo o JSON (patch no singleton), os módulos mudam junto.
+
+**`tests/test_contexto.py`** — **7 testes**
+
+- `test_arquivo_inexistente_retorna_vazio(tmp_path)`
+- `test_arquivo_vazio_retorna_vazio(tmp_path)`
+- `test_le_conteudo(tmp_path)`
+- `test_trunca_no_limite(tmp_path)`
+- `test_sistema_injeta_contexto(monkeypatch)`
+- `test_sistema_sem_contexto_nao_cria_secao(monkeypatch)`
+- `test_contexto_do_projeto_usou_config(monkeypatch, tmp_path)`
+
+**`tests/test_exportador.py`** — **4 testes**
+
+- `_criar_trajetorias(tmp_path)` — Duas threads com tool pat + conversa (como grava o hook + main/TUI).
+- `test_carregar_e_agrupar(tmp_path)`
+- `test_exportar_sharegpt(tmp_path)`
+- `test_exportar_openai(tmp_path)`
+- `test_exportar_sem_trajetorias(tmp_path)`
+
+**`tests/test_ferramentas.py`** — **14 testes**
+
+- `test_calculadora_basica()`
+- `test_calculadora_precedencia_e_funcoes()`
+- `test_calculadora_constantes()`
+- `test_calculadora_bloqueia_codigo_arbitrario()`
+- `test_calculadora_erro_sintaxe()`
+- `test_avaliar_ast_direto()`
+- `test_hora_atual_fuso_valido()`
+- `test_hora_atual_fuso_invalido()`
+- `test_executar_comando_sucesso()`
+- `test_executar_comando_falha()`
+- `test_executar_comando_timeout()`
+- `test_buscar_web_ddgs(monkeypatch)`
+- `test_buscar_web_searxng(monkeypatch)`
+- `test_buscar_web_sem_resultados(monkeypatch)`
+
+**`tests/test_ferramentas_arquivo.py`** — **13 testes**
+
+- `test_escrever_arquivo_cria_com_diff(tmp_path, monkeypatch)`
+- `test_escrever_arquivo_sobrescreve_com_diff(tmp_path, monkeypatch)`
+- `test_editar_arquivo_sucesso(tmp_path, monkeypatch)`
+- `test_editar_arquivo_trecho_ausente_erro_controlado(tmp_path, monkeypatch)`
+- `test_editar_arquivo_ambiguo_exige_contexto(tmp_path, monkeypatch)`
+- `test_path_traversal_relativo_bloqueado(tmp_path, monkeypatch)`
+- `test_path_absoluto_fora_bloqueado(tmp_path, monkeypatch)`
+- `test_symlink_escape_bloqueado(tmp_path, monkeypatch)`
+- `test_ler_arquivo_trunca(tmp_path, monkeypatch)`
+- `test_ler_arquivo_projeto_permitido()`
+- `test_listar_arquivos()`
+- `test_listar_diretorio_inexistente()`
+- `test_escrever_na_raiz_do_projeto_bloqueado(tmp_path, monkeypatch)` — O chat NÃO pode escrever na raiz do projeto — só nos artefatos.
+
+**`tests/test_ferramentas_comando.py`** — **11 testes**
+
+- `test_allowlist_leitura_roda_direto(tmp_path, monkeypatch)`
+- `test_allowlist_git_status_sem_confirmar()`
+- `test_denylist_recusa_sempre(tmp_path, monkeypatch)`
+- `test_escrita_exige_confirmar(tmp_path, monkeypatch)`
+- `test_git_escrita_exige_confirmar()`
+- `test_env_limpo_sem_segredos(tmp_path, monkeypatch)`
+- `test_timeout_respeitado(tmp_path, monkeypatch)`
+- `test_saida_truncada(tmp_path, monkeypatch)`
+- `test_auditoria_registra_recusa(tmp_path, monkeypatch)`
+- `test_aprovado_pela_janela_de_perguntas_executa_sem_confirmar(tmp_path, monkeypatch)` — O comando aprovado pela web UI (autorizacoes) roda sem confirmar=True.
+- `test_denylist_recusa_mesmo_aprovado(tmp_path, monkeypatch)` — Aprovação NÃO contorna a denylist — destrutivos continuam recusados.
+
+**`tests/test_gateway.py`** — **4 testes**
+
+- **classe `AplicacaoStub`** — Substituto do grafo compilado — apenas o contrato `.invoke()`.
+  - `invoke(self, entrada, config)`
+- `test_processar_mensagem_contrato()`
+- `test_http_post_mensagem()`
+- `test_http_healthz()`
+- `test_http_erro_sem_mensagem()`
+
+**`tests/test_grafo.py`** — **37 testes**
+
+- `test_fluxo_ferramenta_sucesso(tmp_path)`
+- `test_fluxo_auto_correcao(tmp_path)`
+- `test_auto_correcao_respeita_limite(tmp_path)` — Com modelo sempre falhando, o loop para após max_tentativas.
+- `test_checkpointer_retoma_conversa(tmp_path)`
+- `test_compressao_trunca_historico(tmp_path)`
+- **classe `ModeloComRaciocinioFake`** — Emula o DeepSeek/Zen no modo thinking: o `_generate` dispara o callback `on_chat_model_stream` com um chunk de reasoning
+  - `bind_tools(self, tools, **kwargs)`
+- `test_no_agente_devolve_reasoning_quando_ha_tool_calls()` — O provider exige o reasoning_content de volta quando a resposta tem tool_calls; o agregador do langchain o descarta — o 
+- `test_no_agente_sem_tool_calls_nao_injeta_reasoning()` — Sem tool_calls o provider não exige o campo — e não deve vazar.
+- **classe `ModeloEspiao`** — Fake que CAPTURA as mensagens recebidas (para inspecionar o system).
+  - `bind_tools(self, tools, **kwargs)`
+  - `chamadas(self)`
+- `test_reflexao_pos_turno_grava_licoes(tmp_path)` — Turno com ferramentas → reflexão extrai e grava lições na Store.
+- `test_reflexao_sem_ferramentas_nao_grava(tmp_path)` — Turno sem ferramentas → nenhuma lição (zero custo, nada gravado).
+- `test_no_reflexao_pos_turno_marca_prioridade_alta_na_repeticao(tmp_path)` — A MESMA ferramenta falhando ≥2× no turno → lição com prioridade alta.
+- `test_recuperar_licoes_por_relevancia(tmp_path)` — Recall: só lições relevantes à consulta voltam (ranqueamento IDF).
+- `test_no_agente_injeta_licoes_relevantes_no_system(tmp_path)` — Lições da Store relevantes à pergunta entram no system do turno.
+- `test_no_agente_sem_licoes_relevantes_nao_injeta_bloco(tmp_path)` — Pergunta sem relação → nenhum bloco de lições no system (sem ruído).
+- `test_pergunta_simples_nao_gera_plano(tmp_path)` — Pergunta curta → fluxo legado: sem plano, sem chamada extra ao LLM.
+- `test_tarefa_complexa_dispara_plano(tmp_path)` — Pergunta com múltiplos passos → heurística ativa (sem LLM).
+- `test_plano_gerado_e_injetado_no_system(tmp_path)` — Tarefa complexa → plano no estado E bloco '## Plano ativo' no system.
+- `test_plano_nao_chama_llm_em_pergunta_simples(tmp_path)` — Heurística negativa → nó de planejamento retorna sem invocar o LLM.
+- `test_replanejamento_marca_passo_falho(tmp_path)` — LLM sem plano válido → fallback mantém o plano com o passo marcado falho.
+- `test_replanejamento_reformula_com_llm(tmp_path)` — LLM devolve plano revisado → o passo que falhou sai; continuação fica.
+- `test_turno_com_ferramenta_gera_evidencia(tmp_path)` — Turno com ferramenta → verificação anexa evidência e segue ao fim.
+- `test_divergencia_dispara_correcao(tmp_path)` — Veredito divergente → agente corrige a resposta (uma única vez).
+- `test_sem_ferramentas_nao_verifica(tmp_path)` — Turno sem ferramentas → verificação não chama LLM adicional.
+- `test_modo_estrita_desligada_nao_verifica(tmp_path)` — verificacao_estrita=False → verificação inativa mesmo com ferramentas.
+- `test_resumo_sessao_gravado_apos_intervalo(tmp_path)` — Turno com ≥ intervalo de mensagens → resumo e decisões na Store.
+- `test_memoria_estrutural_ignora_turno_curto(tmp_path)` — Menos que o intervalo → zero chamadas de LLM.
+- `test_recuperar_contexto_hierarquia(tmp_path)` — Recall hierárquico: perfil → lições → resumo → decisões, na ordem.
+- `test_recuperar_contexto_tool_registrada()` — A tool recuperar_contexto existe e responde com o contexto da Store.
+- `_resposta_revisao(itens)` — Veredito estruturado do revisor por pares (G3).
+- `_executar_entrega_com_uat(app, cfg, pedido, respostas_uat, thread_id)` — Invoca uma entrega até o ship e responde o UAT (G2) pergunta a pergunta via Command(resume); retorna o resultado final.
+- `test_entrega_ciclo_completo_ordem_fases(tmp_path)` — Pedido de entrega → fases na ordem discuss→plan→execute→verify→ship (invariante de ordem), com wave registrada e ship só
+- `test_tarefa_informativa_fluxo_legado_byte_identico(tmp_path)` — Tarefa informativa → fluxo legado: fluxo_trabalho ausente, UMA chamada ao LLM, resposta byte-idêntica à do fluxo sem cla
+- `test_verify_reprovado_volta_execute_sem_ship(tmp_path)` — verify reprova critério → volta a execute (feedback no histórico), NÃO ship; correção final → verify ok → ship.
+- `test_discuss_vago_pausa_com_pergunta_e_resume(tmp_path)` — Pedido de entrega vago → no_discuss PAUSA com pergunta (interrupt); resposta do usuário (Command resume) → ciclo complet
+- `test_revisao_bloqueante_volta_execute_e_corrige(tmp_path)` — Item bloqueante reprovado na revisão → volta a execute com o apontamento como feedback; após a correção, revisão aprovad
+- `test_revisao_aprovada_vai_direto_ship_sem_perguntas(tmp_path)` — Tudo aprovado no checklist → ship direto (sem pergunta ao usuário até o UAT); o selo do ship cita os itens aprovados da 
+- `test_revisao_auditoria_no_estado_e_registros(tmp_path)` — `revisao_entrega` persiste no estado final (auditoria replayável).
+- `test_uat_aprova_criterios_um_a_um(tmp_path)` — Entrega com 2 critérios → 2 perguntas de UAT (uma por execução), respostas registradas com evidência e selo final 🧪.
+- `test_uat_reprovado_vira_gap_e_proximo_turno_retoma(tmp_path)` — Critério reprovado → gap no estado; o próximo turno de entrega (OUTRA thread) carrega o gap como contexto do plano (pers
+- `test_uat_persistido_entre_threads_sem_rede(tmp_path)` — UAT gravado na Store sobrevive a thread nova (novo app, mesmo banco): o segundo UAT mescla o histórico, cada resposta vi
+
+**`tests/test_memoria_camel.py`** — **12 testes**
+
+- `test_pontuacao_recencia_decai_com_o_tempo()` — Registro recente pontua mais que antigo (mesmo conteúdo).
+- `test_pontuacao_meia_vida_configuravel()` — Com meia-vida pequena, um registro antigo perde quase toda a recência.
+- `test_pontuacao_importancia_maior_vence()`
+- `test_pontuacao_overlap_lexical()`
+- `test_roundtrip_persistencia(tmp_path, monkeypatch)`
+- `test_topk_ranqueia_pelo_mais_relevante(tmp_path, monkeypatch)`
+- `test_topk_respeita_k()`
+- `test_esquecer_registro(tmp_path, monkeypatch)`
+- `test_esquecer_desconhecido_erro(tmp_path, monkeypatch)`
+- `test_n_max_limitado(tmp_path)`
+- `test_tokenizar_ignora_stopwords()`
+- `test_registro_camel_registrada()`
+
+**`tests/test_memoria_tool.py`** — **9 testes**
+
+- `test_salvar_grava_na_store()`
+- `test_salvar_sem_conteudo_rejeita()`
+- `test_listar_mostra_fatos()`
+- `test_esquecer_por_chave()`
+- `test_esquecer_por_conteudo()`
+- `test_perfil_funde_dict()`
+- `test_listar_perfil()`
+- `test_acao_invalida()`
+- `test_sem_store_avisa()`
+
+**`tests/test_modulos.py`** — **9 testes**
+
+- `test_store_put_get(tmp_path)`
+- `test_store_namespaces_isolados(tmp_path)`
+- `test_carregar_skills_lê_skil_md(tmp_path)`
+- `test_carregar_e_expor_cria_ferramentas(tmp_path)`
+- `test_criar_skill_escreve_e_valida(tmp_path)`
+- `test_carregar_plugins_exemplo()`
+- `test_contar_e_reverter()`
+- `test_recarregar_plugins()`
+- `test_trajetoria_registra_jsonl(tmp_path)`
+- `json_date()`
+
+**`tests/test_multiagente.py`** — **13 testes**
+
+- `test_classifica_dominio_por_regras()`
+- `test_divisao_do_dominio_limita_especialistas()`
+- `test_parsear_veredito_tolerante()`
+- `test_merge_dict_combina_slots_de_escritas_paralelas()`
+- `test_pools_integridade_contra_lista_real()` — ∪ POOLS ⊆ nomes das ferramentas registradas — nenhuma string órfã.
+- `test_pool_da_lista_filtra_e_none_devolve_tudo()`
+- `test_rota_apos_orquestrador(tmp_path)`
+- `test_orquestrador_registra_auditoria(tmp_path)`
+- `test_orquestrador_dominio_explicito_nos_metadados(tmp_path)` — `@escrita` na web UI força o subgrafo mesmo sem gatilho no texto.
+- `test_orquestrador_pergunta_simples_nao_dispara(tmp_path)`
+- `test_fluxo_multiagente_aprovado(tmp_path)` — Orquestrador → 3 especialistas paralelos → integrador → avaliador OK.
+- `test_fluxo_multiagente_loop_reprovacao(tmp_path)` — Avaliador reprova → especialistas rodam de novo → aprova na 2ª.
+- `test_fluxo_legado_intocado_quando_sem_dominio(tmp_path)` — Pergunta simples continua no fluxo de agente único (sem multiagente).
+
+**`tests/test_obsidian.py`** — **17 testes**
+
+- `vault(tmp_path, monkeypatch)` — Aponta o vault do config para um diretório temporário.
+- `test_extrair_links()`
+- `test_extrair_tags()`
+- `test_criar_e_ler_nota(vault)`
+- `test_criar_nota_duplicada_erro(vault)`
+- `test_nota_em_subpasta(vault)`
+- `test_ler_nota_inexistente(vault)`
+- `test_ligar_nota_bidirecional(vault)`
+- `test_ligar_para_inexistente_erro(vault)`
+- `test_ligar_idempotente(vault)`
+- `test_buscar_fulltext(vault)`
+- `test_notas_por_tag(vault)`
+- `test_notas_conectadas_vazio(vault)`
+- `test_listar_vault_arvore(vault)`
+- `test_limpar_exige_confirmacao(vault)`
+- `test_limpar_vault_com_confirmacao(vault)`
+- `test_indice_nunca_obsoleto(vault)` — Índice corrompido/antigo é recalculado na leitura.
+- `test_registro_das_ferramentas_obsidian()`
+
+**`tests/test_orcamento.py`** — **10 testes**
+
+- **classe `_Resp`** — Resposta OpenAI-compat mínima para extrair_uso.
+- `test_extrair_uso_completo()`
+- `test_extrair_uso_sem_metadata()`
+- `test_somar_uso_acumula_por_chave()`
+- `test_custo_estimado_por_tabela()`
+- `test_verificar_orcamento_turno_e_sessao()`
+- `test_corte_por_orcamento_impede_tools(tmp_path)` — Resposta com tool_calls E usage alto → corte imediato: NENHUMA ferramenta executa (resumo parcial) e o estado registra o
+- `test_corte_por_orcamento_da_sessao(tmp_path)` — Primeiro turno ok; o segundo acumula e estoura a sessão → corte.
+- `test_contabilidade_soma_entre_turnos(tmp_path)` — Reducer de soma: uso de turnos consecutivos na MESMA thread acumula.
+- `test_estatisticas_devolve_metricas_sem_rede(tmp_path, monkeypatch)`
+- `test_ponte_emite_frame_orcamento()`
+
+**`tests/test_papeis.py`** — **14 testes**
+
+- `catalogo_tmp(tmp_path, monkeypatch)` — Aponta config.papeis_config_path para um arquivo temporário.
+- `test_padrao_quando_sem_json(catalogo_tmp)` — Sem arquivo → os 4 papéis padrão.
+- `test_override_e_extensao_pelo_json(catalogo_tmp)`
+- `test_substituir_padrao_true(catalogo_tmp)`
+- `test_resolver_papel_case_insensitive(catalogo_tmp)`
+- `test_resolver_papel_desconhecido(catalogo_tmp)`
+- `test_ferramenta_definir_e_ver_papel(catalogo_tmp, tmp_path, monkeypatch)`
+- `test_listar_papeis(catalogo_tmp)`
+- `test_especificar_tarefa_persistida(tmp_path, monkeypatch)`
+- `test_estruturar_tarefa_heuristica()`
+- `test_estruturar_tarefa_com_marcadores()`
+- `test_montar_bloco_personalidade_sem_estado(tmp_path, monkeypatch)`
+- `test_montar_bloco_personalidade_com_papel_e_tarefa(tmp_path, monkeypatch)`
+- `test_injecao_no_sistema_contem_papel_ativado(tmp_path, monkeypatch)` — sistema() anexa o bloco de personalidade quando há papel/tarefa.
+- `test_registro_das_ferramentas_de_papel()` — definir_papel/ver_papel/listar_papeis/especificar_tarefa registradas.
+
+**`tests/test_prompts_avancados.py`**
+
+- `dir_prompts(monkeypatch, tmp_path)`
+- **classe `TesteSanitizador`**
+  - `test_remove_comentarios_e_virgulas_pendentes(self)`
+  - `test_preserva_url_com_slashes_e_hash_em_string(self)`
+  - `test_virgula_pendente_dentro_de_string_preservada(self)`
+  - `test_aceita_json_puro(self)`
+- **classe `TesteCarga`**
+  - `test_carrega_ficha_valida(self, dir_prompts)`
+  - `test_ficha_quebrada_nao_derruba_catalogo(self, dir_prompts)`
+  - `test_tipos_invalidos_viram_erro(self, dir_prompts)`
+  - `test_diretorio_ausente_retorna_vazio(self, monkeypatch, tmp_path)`
+- **classe `TesteCompilar`**
+  - `test_bloco_contem_todo_o_conteudo(self, dir_prompts)`
+  - `test_variaveis_extras_sobrepoem(self, dir_prompts)`
+  - `test_id_inexistente_lanca_erro(self, dir_prompts)`
+  - `test_interpolacao_tambem_nas_instrucoes(self, dir_prompts)`
+- **classe `TesteAtivacao`**
+  - `test_usar_prompt_ativa_e_compila(self, dir_prompts)`
+  - `test_usar_prompt_inexistente_lanca(self, dir_prompts)`
+  - `test_desativar_limpa(self, dir_prompts)`
+  - `test_prompt_ativo_sem_catalogo_volta_vazio(self, dir_prompts, monkeypatch)`
+- **classe `TesteListagem`**
+  - `test_listar_mostra_ids_descricoes(self, dir_prompts)`
+  - `test_listar_avisa_sobre_ficha_quebrada(self, dir_prompts)`
+  - `test_ver_prompt_marca_ativo(self, dir_prompts)`
+  - `test_ver_prompt_de_outro_nao_marca(self, dir_prompts)`
+- **classe `TesteIntegracao`**
+  - `test_sistema_inclui_prompt_ativo(self, dir_prompts)`
+- **classe `TesteTools`**
+  - `test_tools_registradas(self)`
+
+**`tests/test_recuperacao.py`** — **4 testes**
+
+- `test_pesquisa_recupera_do_store(tmp_path, monkeypatch)`
+- `test_pesquisa_recupera_skill(tmp_path, monkeypatch)`
+- `test_pesquisa_sem_store()`
+- `test_pesquisa_consulta_vazia(tmp_path, monkeypatch)`
+
+**`tests/test_relogio.py`** — **6 testes**
+
+- `test_relogio_fuso_padrao()`
+- `test_relogio_multiplos_fusos()`
+- `test_relogio_ignora_espacos()`
+- `test_relogio_fusos_vazios_usa_padrao()`
+- `test_relogio_fuso_invalido()`
+- `test_relogio_mistura_valido_e_invalido_falha_rapido()`
+
+**`tests/test_sandbox_distribuido.py`** — **17 testes**
+
+- `test_denylist_reconhece_perigos()`
+- `test_docker_monta_comando_completo(monkeypatch)`
+- `test_docker_denylist_bloqueia_sem_chamar_subprocess(monkeypatch)`
+- `test_docker_timeout(monkeypatch)`
+- `test_docker_sem_instalacao(monkeypatch)`
+- `test_docker_nao_vaza_ambiente_do_host(monkeypatch)` — O container NUNCA recebe env do host: sem `-e`/`--env-file` no comando.
+- `test_ssh_monta_comando_com_allowlist(monkeypatch)`
+- `test_ssh_fora_da_allowlist_recusa(monkeypatch)`
+- `test_ssh_sem_destino_configurado(monkeypatch)`
+- `test_ssh_timeout(monkeypatch)`
+- `test_ssh_nao_vaza_ambiente_do_host(monkeypatch)`
+- `test_criar_executor_respeita_cfg(monkeypatch)`
+- `test_comando_sandbox_backend_docker_audita(monkeypatch, tmp_path)`
+- `test_comando_sandbox_local_audita_backend_local(monkeypatch, tmp_path)`
+- `test_auditoria_do_comando_com_politica_ganha_backend(monkeypatch, tmp_path)` — A auditoria existente (tool `comando`) também carrega backend=local.
+- `test_integracao_docker_real(monkeypatch, tmp_path)` — Critério de aceite: `echo` roda no container efêmero com artefatos montados.
+- `test_comando_sandbox_denylist_por_docker(monkeypatch, tmp_path)` — Denylist vale pela ferramenta também (backend docker).
+
+**`tests/test_seguranca.py`** — **12 testes**
+
+- `test_classifica_injecoes_variadas(prefixo, instrucao, payload)` — Qualquer composição de instrução embutida é marcada como suspeita.
+- `test_classifica_dados_limpos(texto)` — Dados normais nunca são marcados como suspeitos (zero falso positivo).
+- `test_marcador_sempre_presente_e_aviso(instrucao)` — Leitura suspeita: marcador de classificação + aviso + _fonte.
+- `test_marcador_sem_aviso_em_dado_limpo(texto)` — Leitura limpa: marcador de classificação presente, sem aviso ⚠️.
+- `test_bloco_seguranca_no_prompt_de_sistema()` — O system prompt carrega o bloco permanente de segurança.
+- `_montar(tmp_path, monkeypatch)` — Redireciona o sandbox de escrita (artefatos) para tmp_path — o `ler_arquivo` só permite projeto e artefatos.
+- `test_ler_arquivo_marca_conteudo_suspeito(tmp_path, monkeypatch)`
+- `test_ler_arquivo_marca_conteudo_limpo(tmp_path, monkeypatch)`
+- `test_tools_externas_auditadas()` — As ferramentas de leitura externa estão na lista de auditoria.
+- `test_agente_recusa_instrucao_embutida_e_audita(tmp_path, monkeypatch)` — Conteúdo com instrução embutida → agente recusa, nunca executa ação destrutiva; a leitura entra na auditoria com fonte_e
+- `test_auditoria_ferramenta_interna_nao_externa(tmp_path)` — Ferramenta interna (calculadora) NÃO é marcada como fonte externa.
+- `test_reflexao_grava_licao_de_seguranca(tmp_path, monkeypatch)` — Turno que leu conteúdo suspeito aprende a lição de segurança (C1) de forma determinística — independente do LLM da refle
+- `test_corrida_injecoes_zero_execucao_destrutiva(instrucao)` — Critério de aceite C5: corrida de arquivos com injeções variadas → o aviso chega ao agente e ZERO ação destrutiva é exec
+
+**`tests/test_sessoes.py`** — **8 testes**
+
+- `_montar_trajetorias(tmp_path)` — Gera trajetórias com conversas conhecidas e retorna o diretório.
+- `test_ler_trajetorias_monta_sessoes(tmp_path)`
+- `test_descobrir_por_consulta(tmp_path)`
+- `test_descobrir_vazio_quando_sem_match(tmp_path)`
+- `test_determinismo_mesma_saida(tmp_path)`
+- `test_rolar_janela(tmp_path)`
+- `test_rolar_sessao_ausente(tmp_path)`
+- `test_navegar_oculta_fonte_automatizada(tmp_path)`
+- `test_ferramenta_descobrir_invoke(tmp_path)`
+
+**`tests/test_sistema.py`** — **3 testes**
+
+- `test_sistema_tem_regras_do_loop()`
+- `test_sistema_mantem_identidade_e_ferramentas()`
+- `test_sistema_inclui_metadados_quando_dados()`
+
+**`tests/test_slash.py`** — **19 testes**
+
+- `estado_tmp(tmp_path, monkeypatch)` — Aponta os arquivos de estado para o tmp_path (isolamento total).
+- `test_parser_slash_basico()`
+- `test_registro_tem_os_20_base()`
+- `test_registro_cientifico_e_vault()`
+- `test_executar_ajuda(estado_tmp)`
+- `test_executar_desconhecido()`
+- `test_executar_app_acoes()`
+- `test_status_mostra_papeis_e_ferramentas(estado_tmp)`
+- `test_config_mostra_caminhos(estado_tmp)`
+- `test_papel_e_papeis(estado_tmp)`
+- `test_planejar_grava_tarefa(estado_tmp)`
+- `test_plano_marcar_pensar(estado_tmp)`
+- `test_memoria_salvar_e_consultar(estado_tmp)`
+- `test_esquecer_memoria(estado_tmp)`
+- `test_ferramentas_lista(estado_tmp)`
+- `test_criar_e_ler_nota_vault(estado_tmp)`
+- `test_tag_no_vault(estado_tmp)`
+- `test_obsidian_lista(estado_tmp)`
+- `test_buscar_paper_rede_falha(estado_tmp, monkeypatch)` — Sem rede → mensagem amigável, sem crash do slash.
+- `test_tui_intercepta_slash_sem_llm()` — enviar('/ajuda') responde localmente (nenhum produtor é chamado).
+
+**`tests/test_subagentes.py`** — **7 testes**
+
+- `test_pesquisador_usa_ferramenta_e_responde()`
+- `test_redator_gera_texto_sem_ferramentas()`
+- `test_delegar_redacao_invoca_subagente(monkeypatch)`
+- `test_delegar_redacao_aceita_contexto(monkeypatch)`
+- `test_delegar_sem_subagente_configurado(monkeypatch)`
+- `test_configurar_subagentes_registra_ambos()`
+- `test_erro_de_ferramenta_dispara_reflexao_no_subagente()`
+
+**`tests/test_tarefas.py`** — **10 testes**
+
+- `test_escrever_e_listar()`
+- `test_merge_preserva_existentes()`
+- `test_substituicao_sem_merge()`
+- `test_status_invalido_vira_pendente()`
+- `test_ativas_apenas_pendente_executando()`
+- `test_reinjecao_vazia_sem_ativas()`
+- `test_reinjecao_inclui_cabecalho()`
+- `test_persistencia_em_arquivo(tmp_path)`
+- `test_trunca_conteudo_longo()`
+- `test_ferramenta_escreve_e_le()`
+
+**`tests/test_trabalho_g5.py`** — **10 testes**
+
+- `test_pausa_grava_handoff_e_retomada_continua_ciclo(tmp_path, monkeypatch)` — ENTREGAR vago → interrupt (fase discuss); pausa grava o handoff na Store; retomada com a resposta da pergunta continua d
+- `test_pausa_sem_entrega_avisada(tmp_path, monkeypatch)`
+- `test_retomar_sem_handoff_avisado(tmp_path, monkeypatch)`
+- `_repo_git(tmp_path)` — Cria um repo git de teste com 3 commits (a → b → c) e retorna (repo, shas).
+- `test_reverter_entrega_reverte_commit_especifico(tmp_path, monkeypatch)`
+- `test_reverter_entrega_default_reverte_head(tmp_path, monkeypatch)`
+- `test_reverter_entrega_sha_invalido_bloqueado(tmp_path, monkeypatch)`
+- `test_replay_turno_deterministico(tmp_path, monkeypatch)` — Re-executa calculadora(2+2) com os MESMOS args — saída idêntica.
+- `test_replay_turno_detecta_diferenca(tmp_path, monkeypatch)` — Estado com resultado forjado → o reprodutor aponta o DIFERENTE.
+- `test_replay_turno_sem_registros(tmp_path, monkeypatch)`
+- `test_registro_ferramentas_trabalho_tem_4_tools()`
+
+**`tests/test_tui.py`** — **17 testes**
+
+- **classe `CfgFake`**
+- `_produtor_texto(texto, tools)` — Factory de produtor que emite frames de token (e opcionalmente tool).
+- `test_turno_multiagente_frame_resposta_multi()` — Frame resposta_multi (multiagente) vira a resposta exibida na TUI.
+- `test_compose_tem_widgets_essenciais()`
+- `test_turno_streama_resposta()`
+- `test_turno_renderiza_pergunta_e_resposta()`
+- `test_turno_com_ferramenta_expõe_saida()`
+- `test_comando_sair_nao_dispara_turno()`
+- `test_pergunta_vazia_ignorada()`
+- `test_painel_lateral_mostra_estado()`
+- `test_statusbar_mostra_metricas_apos_turno()`
+- `test_meta_do_turno_montada_no_chat()`
+- `test_modo_raw_alterna_e_usa_static()`
+- `test_modelo_alterado_via_slash()`
+- `test_turno_registra_ferramenta_no_painel()`
+- `test_bindings_teclado_limpar_e_novo()`
+- `test_frame_erro_notifica_e_mostra_no_bloco()`
+- `test_turno_captura_excecao_do_grafo()` — GraphRecursionError/limite de recursão não derruba mais o worker.
+- `test_nova_sessao_troca_thread_id()`
+
+**`tests/test_webui_bridge.py`** — **15 testes**
+
+- `test_processar_evento_contrato_completo()` — O contrato evento v2 → frames (o runtime 1.x não streama invoke de modelos customizados — mesmo motivo dos testes da TUI
+- `test_multiagente_subgrafos_e_vereditos()`
+- `test_turno_simples_fim_e_metrica()` — Integração: o fake gera (não streama) — tokens só via contrato (acima), mas fim/metríca/job_id/estado_final vêm do fluxo
+- `test_tool_sistema_frame_arquivo(tmp_path, monkeypatch)`
+- `test_redigir_nunca_vaza_chave()`
+- `test_snapshot_sem_segredos()`
+- `test_processar_ping_e_desconhecido()`
+- `test_processar_estado()`
+- `test_processar_sugestoes_catalogo_real()`
+- `test_processar_slash_status()`
+- `test_processar_slash_desconhecido_nao_derruba()`
+- `test_executar_job_dominio_explicito_dispara_subgrafo(tmp_path)` — `dominio` na mensagem vira metadado → orquestrador roteia p/ subgrafo.
+- `test_historico_threads(tmp_path, monkeypatch)`
+- **classe `AppQueCapturaConfig`** — App fake cujo astream_events registra o config recebido (e nada além).
+  - `astream_events(self, entrada, config, version)`
+- `test_executar_job_passa_recursion_limit_no_topo_do_config()` — O LangGraph lê `recursion_limit` no TOPO (default 25); dentro do `configurable` é ignorado e turnos longos morriam aos 2
+- `test_linha_malformada_nao_derruba(monkeypatch, capsys)`
+
+---
+
+## 8. Como o projeto é desenvolvido (padrão de entrega)
 
 Cada fase do núcleo termina com o mesmo ciclo:
 
