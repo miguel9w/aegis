@@ -42,6 +42,7 @@ from .prompts import (
     replanejar_tarefa,
     resumir_historico,
     resumir_sessao,
+    revisar_entrega,
     sistema,
     verificar_entrega,
     verificar_resposta,
@@ -306,6 +307,34 @@ def _parsear_vereditos_entrega(texto: str, total: int) -> list[dict]:
                 "verificado": bool(item.get("verificado", False)),
                 "evidencia": str(item.get("evidencia", "")),
             })
+    return saida
+
+
+def _parsear_revisao(texto: str) -> list[dict]:
+    """Parse tolerante do JSON do revisor por pares (G3): lista de
+    {item, veredito, apontamento}. Item ausente na resposta = reprovado."""
+    import re
+
+    m = re.search(r"\{.*\}", texto, re.DOTALL)
+    if not m:
+        return []
+    try:
+        dados = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return []
+    lista = dados.get("itens") if isinstance(dados, dict) else dados
+    if not isinstance(lista, list):
+        return []
+    saida: list[dict] = []
+    for item in lista:
+        if not isinstance(item, dict):
+            continue
+        veredito = str(item.get("veredito", "")).strip().lower()
+        saida.append({
+            "item": str(item.get("item", "(item sem nome)")),
+            "veredito": "aprovado" if veredito.startswith("aprovad") else "reprovado",
+            "apontamento": str(item.get("apontamento", "")),
+        })
     return saida
 
 
@@ -899,6 +928,97 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         ft["fase"] = "ship"
         return {"fluxo_trabalho": ft}
 
+    def no_revisar(state: EstadoAegis) -> dict:
+        """Revisão por pares (G3): segunda opinião OBRIGATÓRIA antes do ship.
+        O pacote da entrega (plano/critérios, evidências, commits) é julgado
+        contra o checklist fixo (limites.json) por um REVISOR (LLM, veredito
+        estruturado por item). Item reprovado → volta a execute com o
+        apontamento como feedback (lição de C1); limite de correções força
+        ship com os apontamentos anexados (anti-loop)."""
+        ft = dict(state.get("fluxo_trabalho") or {})
+        if not (ft.get("criterios") or []):
+            ft["fase"] = "ship"
+            return {"fluxo_trabalho": ft}
+        checklist = list(cfg.checklist_revisao or [])
+        criterios = list(ft.get("criterios") or [])
+        ultima = next(
+            (m for m in reversed(state.get("mensagens") or [])
+             if getattr(m, "type", "") == "ai"),
+            None,
+        )
+        registros = state.get("registros_ferramentas") or []
+        commits = state.get("commits_entrega") or []
+        criterios_json = json.dumps(
+            [{"texto": c.get("texto", ""), "verificado": bool(c.get("verificado")),
+              "evidencia": c.get("evidencia", "")} for c in criterios],
+            ensure_ascii=False,
+        )
+        evidencias = "\n".join(
+            f"- {r.get('nome')}: {_truncar(r.get('resultado', ''), 200)}"
+            for r in registros[-6:]
+        ) or "(nenhuma)"
+        pacote = (
+            f"Critérios de aceite:\n{criterios_json}\n\n"
+            f"Resumo da entrega:\n{str(getattr(ultima, 'content', '') or '')[:600]}\n\n"
+            f"Evidências (últimas execuções):\n{evidencias}\n\n"
+            f"Commits da onda: {len(commits)}"
+        )
+        try:
+            resp = com_retry(lambda: llm.invoke([
+                SystemMessage(revisar_entrega(checklist)),
+                HumanMessage(pacote),
+            ]))
+            itens = _parsear_revisao(resp.content)
+            # item do checklist sem veredito na resposta = reprovado (fail-safe)
+            respondidos = {i["item"] for i in itens}
+            itens += [
+                {"item": i, "veredito": "reprovado",
+                 "apontamento": "revisor não respondeu o item"}
+                for i in checklist if i not in respondidos
+            ]
+            if not itens:
+                itens = [{"item": i, "veredito": "reprovado",
+                          "apontamento": "revisor não respondeu o item"}
+                         for i in checklist]
+        except Exception:  # noqa: BLE001 — revisão falha → nada ship (fail-safe)
+            if cfg.dev:
+                import traceback
+                traceback.print_exc()
+            itens = [{"item": i, "veredito": "reprovado",
+                      "apontamento": "falha ao consultar o revisor"}
+                     for i in checklist]
+        aprovados = sum(1 for i in itens if i["veredito"] == "aprovado")
+        apontamentos = [i for i in itens if i["veredito"] != "aprovado"]
+        ft["revisao_entrega"] = {
+            "itens": itens,
+            "checklist_total": len(checklist),
+            "aprovados": aprovados,
+            "apontamentos": [
+                {"item": i["item"], "apontamento": i["apontamento"]}
+                for i in apontamentos
+            ],
+            "revisado_em": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        correcoes = (ft.get("correcoes") or 0) + 1
+        ft["correcoes"] = correcoes
+        if apontamentos and correcoes <= 2:
+            ft["feedback"] = (
+                "Revisão por pares reprovou: "
+                + " | ".join(
+                    f"{i['item']}: {i['apontamento'] or 'sem justificativa'}"
+                    for i in apontamentos)[:400]
+            )
+            ft["fase"] = "execute"
+            return {
+                "fluxo_trabalho": ft,
+                "revisao_entrega": ft["revisao_entrega"],
+                "mensagens": [HumanMessage(
+                    content=f"[revisão por pares] {ft['feedback']} — corrija e refaça.")],
+            }
+        ft["feedback"] = ""
+        ft["fase"] = "ship"
+        return {"fluxo_trabalho": ft, "revisao_entrega": ft["revisao_entrega"]}
+
     def no_ship(state: EstadoAegis) -> dict:
         """Fase ship: selo da entrega + resumo + critérios; zero LLM."""
         ft = dict(state.get("fluxo_trabalho") or {})
@@ -919,11 +1039,25 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
             f"  {'✅' if c.get('verificado') else '⚠️'} {c.get('texto', '')[:100]}"
             for c in criterios
         ) or "  (sem critérios)"
+        rev = state.get("revisao_entrega") or {}
+        rev_linha = ""
+        if rev.get("itens"):
+            rev_linha = (
+                f"Revisão por pares: ✅ {rev.get('aprovados', 0)}/"
+                f"{rev.get('checklist_total', len(rev['itens']))} itens aprovados"
+            )
+            pend = rev.get("apontamentos") or []
+            if pend:
+                rev_linha += "\n" + "\n".join(
+                    f"  ⚠️ {p.get('item', '')}: {p.get('apontamento', '')[:120]}"
+                    for p in pend[:4]
+                )
         msg = AIMessage(content=(
             "🛳️ Entrega concluída (ciclo GSD) — fase `ship`.\n"
             f"Critérios verificados: {verificados}/{len(criterios)}\n{linhas}\n"
             f"Commits: {len(state.get('commits_entrega') or [])}\n"
-            f"Resumo: {ft['ship']['resumo']}"
+            + (rev_linha + "\n" if rev_linha else "")
+            + f"Resumo: {ft['ship']['resumo']}"
         ))
         return {"mensagens": [msg], "fluxo_trabalho": ft}
 
@@ -1103,6 +1237,7 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
         "no_discuss": no_discuss,
         "no_plan_entrega": no_plan_entrega,
         "no_verify_entrega": no_verify_entrega,
+        "no_revisar": no_revisar,
         "no_ship": no_ship,
         "no_uat_apos_ship": no_uat_apos_ship,
     }

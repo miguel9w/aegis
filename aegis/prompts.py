@@ -324,3 +324,24 @@ def verificar_entrega() -> str:
         " \"evidencia\": \"o que comprova (fonte concreta)\"}]}\n"
         "Um item por critério, na MESMA ordem dos critérios recebidos. Nada além do JSON."
     )
+
+
+def revisar_entrega(checklist: list[str]) -> str:
+    """Prompt do REVISOR por pares (G3): segunda opinião obrigatória antes do
+    ship — cada item do checklist de normas julgado contra o pacote da entrega
+    (plano, evidências, commits). Veredito estruturado por item."""
+    itens = "\n".join(f"- {i}" for i in checklist)
+    return (
+        "Você é o REVISOR POR PARES da entrega (ciclo GSD do Aegis) — segunda\n"
+        "opinião OBRIGATÓRIA antes do ship. O verificado goal-backward já passou;\n"
+        "sua função é pegar falhas de NORMA que ele não cobre e impedir\n"
+        "alucinação na entrega. Julgue o pacote (plano, evidências, commits)\n"
+        f"contra o checklist:\n{itens}\n"
+        "Para CADA item do checklist decida, com base APENAS nas evidências do\n"
+        " pacote, se a entrega atende. Sem evidência = reprovado. Apontamento\n"
+        " específico (o que falta, onde).\n"
+        "Retorne ESTRITAMENTE um JSON:\n"
+        "{\"itens\": [{\"item\": \"<nome do item>\", \"veredito\": \"aprovado\"|\"reprovado\",\n"
+        " \"apontamento\": \"<específico ou vazio>\"}]}\n"
+        "UM item para CADA item do checklist, na MESMA ordem. Nada além do JSON."
+    )

@@ -321,27 +321,37 @@ o critério 2").
 
 ---
 
-## Fase G3 — Revisão por pares antes do ship (review checklist)
+## Fase G3 — Revisão por pares antes do ship (review checklist) ✅
 
 **Objetivo:** nada vai a `ship` sem passar por revisão — checklist de normas
 + agente crítico (paridade `gsd-review`/`gsd-code-review`), consolidando os
-apontamentos antes da entrega.
+apontamentos antes da entrega. **Status: implementado (2026-08); prova
+real com o provider zen pendente — bloqueada por regressão do provedor
+(400 do "Console" em qualquer request com tool_calls; ver sanidade em
+`/tmp/g3san.py`, 0/9 ok).**
 
 **Mudanças:**
-- Esteira: `no_verificar` (C3) aprovado → `no_revisar` (novo): monta o
-  "pacote de revisão" (plano, diff/artefatos, critérios) e submete a um
-  revisor — reusa o avaliador LLM do multiagente (veredito estruturado) ou
-  um subagente `delegar_revisao` dedicado.
-- Checklist fixo em `config/dados/limites.json` (segurança, sandbox de
-  escrita, testes, documentação, anti-alucinação) — o revisor responde por
-  item; `bloqueante` reprovado → volta a `execute` com o apontamento como
-  contexto (lição de C1).
-- UI: painel de revisão no feed (item → veredito → apontamento).
+- Esteira: `no_verify_entrega` (G1) aprovado → `no_revisar` (novo): monta o
+  "pacote de revisão" (critérios verificados, resumo da entrega, evidências
+  das últimas execuções, commits da onda) e submete a um revisor — prompt
+  dedicado `revisar_entrega()` no `prompts.py` (veredito estruturado JSON por
+  item).
+- Checklist fixo em `config/dados/limites.json` (`checklist_revisao`:
+  segurança, sandbox de escrita, testes, documentação, anti-alucinação) — o
+  revisor responde por item; item sem veredito na resposta é tratado como
+  reprovado (fail-safe); reprovado → volta a `execute` com o apontamento como
+  feedback (lição de C1), máx. 2 correções (anti-loop força ship com os
+  apontamentos anexados).
+- Verdicto estruturado persiste no estado (`revisao_entrega`:
+  itens/checklist_total/aprovados/apontamentos/revisado_em) — auditoria
+  replayável — e o selo 🛳️ do ship cita os itens aprovados.
 
-**Testes:**
-- pacote com item bloqueante reprovado → rota de volta a `execute`.
-- todos aprovados → `ship` direto, sem perguntas ao usuário.
-- veredito estruturado no estado (`vereditos` reutilizado) e auditoria.
+**Testes (3 novos em `tests/test_grafo.py`):**
+- pacote com item bloqueante reprovado → rota de volta a `execute` e,
+  após a correção, `ship` (`test_revisao_bloqueante_volta_execute_e_corrige`).
+- todos aprovados → `ship` direto, sem perguntas ao usuário (o 1º interrupt
+  só no UAT) + selo cita a revisão (`test_revisao_aprovada_vai_direto_ship_sem_perguntas`).
+- veredito estruturado no estado e auditoria (`test_revisao_auditoria_no_estado_e_registros`).
 
 **Critério de aceite:** entrega real passa por revisão com checklist e o
 resumo do ship cita os itens aprovados.

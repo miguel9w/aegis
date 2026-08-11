@@ -5,5 +5,12 @@
   "limite_trecho_sessao": 300,
   "limite_truncamento_tui": 2000,
   "busy_timeout_ms": 2000,
-  "recursion_limit": 50
+  "recursion_limit": 50,
+  "checklist_revisao": [
+    "seguranca",
+    "sandbox de escrita",
+    "testes",
+    "documentacao",
+    "anti-alucinacao"
+  ]
 }

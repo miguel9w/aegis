@@ -89,7 +89,12 @@ def montar_grafo(
         return "verificar"  # C3: resposta final passa pela verificação
 
     def rota_apos_verify_entrega(state: EstadoAegis) -> str:
-        """Tudo verificado → ship; reprovou → volta a execute (correção)."""
+        """Tudo verificado → revisão por pares (G3); reprovou → execute."""
+        ft = state.get("fluxo_trabalho") or {}
+        return "revisar" if ft.get("fase") == "ship" else "agente"
+
+    def rota_apos_revisar(state: EstadoAegis) -> str:
+        """G3: revisão aprovada → ship; apontamento bloqueante → execute."""
         ft = state.get("fluxo_trabalho") or {}
         return "ship" if ft.get("fase") == "ship" else "agente"
 
@@ -144,6 +149,7 @@ def montar_grafo(
     grafo.add_node("no_discuss", nos["no_discuss"])
     grafo.add_node("no_plan_entrega", nos["no_plan_entrega"])
     grafo.add_node("no_verify_entrega", nos["no_verify_entrega"])
+    grafo.add_node("no_revisar", nos["no_revisar"])
     grafo.add_node("no_ship", nos["no_ship"])
     grafo.add_node("no_uat_apos_ship", nos["no_uat_apos_ship"])
 
@@ -203,6 +209,12 @@ def montar_grafo(
     grafo.add_conditional_edges(
         "no_verify_entrega",
         rota_apos_verify_entrega,
+        {"revisar": "no_revisar", "agente": "no_agente"},
+    )
+    # G3: revisão por pares (segunda opinião obrigatória) entre verify e ship
+    grafo.add_conditional_edges(
+        "no_revisar",
+        rota_apos_revisar,
         {"ship": "no_ship", "agente": "no_agente"},
     )
     grafo.add_edge("no_ship", "no_uat_apos_ship")

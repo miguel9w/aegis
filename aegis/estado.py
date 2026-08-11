@@ -110,3 +110,6 @@ class EstadoAegis(TypedDict):
     uat: NotRequired[list[dict[str, Any]]]
     # Critérios reprovados (viram contexto do próximo ciclo de entrega)
     gaps: NotRequired[list[str]]
+    # Revisão por pares antes do ship (G3): {itens, checklist_total,
+    # aprovados, apontamentos, revisado_em} — auditoria replayável
+    revisao_entrega: NotRequired[dict[str, Any]]

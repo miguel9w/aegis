@@ -698,6 +698,12 @@ def _resposta_verify_entrega(vereditos: list[dict]) -> AIMessage:
     return AIMessage(content=json.dumps({"criterios": vereditos}, ensure_ascii=False))
 
 
+def _resposta_revisao(itens: list[dict]) -> AIMessage:
+    """Veredito estruturado do revisor por pares (G3)."""
+    import json
+    return AIMessage(content=json.dumps({"itens": itens}, ensure_ascii=False))
+
+
 def _executar_entrega_com_uat(app, cfg, pedido, respostas_uat, thread_id=None):
     """Invoca uma entrega até o ship e responde o UAT (G2) pergunta a pergunta
     via Command(resume); retorna o resultado final."""
@@ -728,6 +734,13 @@ def test_entrega_ciclo_completo_ordem_fases(tmp_path):
         AIMessage(content="Tool somador criada e testada."),
         _resposta_verify_entrega([{"indice": 0, "verificado": True,
                                    "evidencia": "tool existe e roda"}]),
+        _resposta_revisao([
+            {"item": "seguranca", "veredito": "aprovado", "apontamento": ""},
+            {"item": "sandbox de escrita", "veredito": "aprovado", "apontamento": ""},
+            {"item": "testes", "veredito": "aprovado", "apontamento": ""},
+            {"item": "documentacao", "veredito": "aprovado", "apontamento": ""},
+            {"item": "anti-alucinacao", "veredito": "aprovado", "apontamento": ""},
+        ]),
         _resposta_licoes([]),
     ])
     app, cfg = _app(tmp_path, modelo)
@@ -833,8 +846,119 @@ def test_discuss_vago_pausa_com_pergunta_e_resume(tmp_path):
 
 
 # ---------------------------------------------------------------------
-# G2 — UAT conversacional com estado persistente
+# G3 — Revisão por pares antes do ship
 # ---------------------------------------------------------------------
+
+def test_revisao_bloqueante_volta_execute_e_corrige(tmp_path):
+    """Item bloqueante reprovado na revisão → volta a execute com o apontamento
+    como feedback; após a correção, revisão aprovada → ship."""
+    modelo = ModeloFake()
+    modelo.configurar([
+        _resposta_plano([{"passo": "criar tool", "objetivo": "entrega",
+                          "status": "pendente"}]),
+        chamada_tool("calculadora", {"expressao": "5 + 5"}, id_chamada="call_r1"),
+        AIMessage(content="Entregue v1."),
+        _resposta_verify_entrega([{"indice": 0, "verificado": True,
+                                   "evidencia": "roda"}]),
+        _resposta_revisao([{"item": "seguranca", "veredito": "reprovado",
+                            "apontamento": "comando roda sem validar entrada"}],
+                          ),
+        AIMessage(content="Corrigido: valida entrada agora."),
+        _resposta_verify_entrega([{"indice": 0, "verificado": True,
+                                   "evidencia": "roda e valida"}]),
+        _resposta_revisao([
+            {"item": "seguranca", "veredito": "aprovado", "apontamento": ""},
+            {"item": "sandbox de escrita", "veredito": "aprovado", "apontamento": ""},
+            {"item": "testes", "veredito": "aprovado", "apontamento": ""},
+            {"item": "documentacao", "veredito": "aprovado", "apontamento": ""},
+            {"item": "anti-alucinacao", "veredito": "aprovado", "apontamento": ""},
+        ]),
+        _resposta_licoes([]),
+    ])
+    app, cfg = _app(tmp_path, modelo)
+    r = _executar_entrega_com_uat(
+        app, cfg, "adicione a rotina de backup com teste e push", ["aprovado"],
+    )
+    ft = r["fluxo_trabalho"]
+    assert ft["fase"] == "ship"
+    assert ft["correcoes"] >= 1, "revisão reprovada deveria contar como correção"
+    rev = r["revisao_entrega"]
+    assert rev and rev["itens"], "veredito estruturado da revisão no estado"
+    assert rev["itens"][0]["item"] == "seguranca"
+    assert "valida entrada" in " ".join(str(m.content) for m in r["mensagens"])
+
+
+def test_revisao_aprovada_vai_direto_ship_sem_perguntas(tmp_path):
+    """Tudo aprovado no checklist → ship direto (sem pergunta ao usuário até
+    o UAT); o selo do ship cita os itens aprovados da revisão."""
+    modelo = ModeloFake()
+    modelo.configurar([
+        _resposta_plano([{"passo": "criar tool", "objetivo": "entrega",
+                          "status": "pendente"}]),
+        chamada_tool("calculadora", {"expressao": "6 + 6"}, id_chamada="call_r2"),
+        AIMessage(content="Entregue."),
+        _resposta_verify_entrega([{"indice": 0, "verificado": True,
+                                   "evidencia": "testes passam"}]),
+        _resposta_revisao([
+            {"item": "seguranca", "veredito": "aprovado", "apontamento": ""},
+            {"item": "sandbox de escrita", "veredito": "aprovado", "apontamento": ""},
+            {"item": "testes", "veredito": "aprovado", "apontamento": ""},
+            {"item": "documentacao", "veredito": "aprovado", "apontamento": ""},
+            {"item": "anti-alucinacao", "veredito": "aprovado", "apontamento": ""},
+        ]),
+        _resposta_licoes([]),
+    ])
+    app, cfg = _app(tmp_path, modelo)
+    # sem resposta para o UAT por engano: o 1º invoke deve parar SÓ no UAT
+    # (prova de que não houve pergunta antes do ship)
+    from langgraph.types import Command
+    config = {"configurable": {"thread_id": cfg.thread_id}}
+    r1 = app.invoke(
+        {"mensagens": [HumanMessage("adicione a rotina de backup com teste e push")],
+         "metadados_sessao": {"thread_id": cfg.thread_id}},
+        config=config,
+    )
+    assert r1.get("__interrupt__"), "fluxo deveria pausar apenas no UAT"
+    assert "UAT" in str(r1["__interrupt__"]), "interrupt prematuro antes do UAT"
+    r2 = app.invoke(Command(resume="aprovado"), config=config)
+    ft = r2["fluxo_trabalho"]
+    assert ft["fase"] == "ship" and ft.get("correcoes", 0) <= 2
+    rev = r2["revisao_entrega"]
+    assert len(rev["itens"]) == 5 and all(
+        i["veredito"] == "aprovado" for i in rev["itens"])
+    # o resumo do ship cita a revisão aprovada
+    textos = " ".join(str(m.content) for m in r2["mensagens"])
+    assert "Revisão" in textos and "5/5" in textos
+
+
+def test_revisao_auditoria_no_estado_e_registros(tmp_path):
+    """`revisao_entrega` persiste no estado final (auditoria replayável)."""
+    modelo = ModeloFake()
+    modelo.configurar([
+        _resposta_plano([{"passo": "criar tool", "objetivo": "entrega",
+                          "status": "pendente"}]),
+        chamada_tool("calculadora", {"expressao": "7 + 7"}, id_chamada="call_r3"),
+        AIMessage(content="Entregue."),
+        _resposta_verify_entrega([{"indice": 0, "verificado": True,
+                                   "evidencia": "ok"}]),
+        _resposta_revisao([
+            {"item": "seguranca", "veredito": "aprovado", "apontamento": ""},
+            {"item": "sandbox de escrita", "veredito": "aprovado", "apontamento": ""},
+            {"item": "testes", "veredito": "aprovado", "apontamento": ""},
+            {"item": "documentacao", "veredito": "aprovado", "apontamento": ""},
+            {"item": "anti-alucinacao", "veredito": "aprovado", "apontamento": ""},
+        ]),
+        _resposta_licoes([]),
+    ])
+    app, cfg = _app(tmp_path, modelo)
+    r = _executar_entrega_com_uat(
+        app, cfg, "adicione a rotina de backup com teste e push", ["aprovado"],
+    )
+    rev = r["revisao_entrega"]
+    assert rev["checklist_total"] == 5
+    assert rev["aprovados"] == 5
+    assert rev["apontamentos"] == []
+    assert "🛳️" in " ".join(str(m.content) for m in r["mensagens"])
 
 def test_uat_aprova_criterios_um_a_um(tmp_path):
     """Entrega com 2 critérios → 2 perguntas de UAT (uma por execução),

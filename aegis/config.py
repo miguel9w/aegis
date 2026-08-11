@@ -17,6 +17,11 @@ from dotenv import load_dotenv
 # Diretório raiz do projeto (pasta que contém o pacote `aegis`)
 RAIZ = Path(__file__).resolve().parent.parent
 
+# Checklist padrão da revisão por pares (G3) — sobreescrito por limites.json
+_CHECKLIST_REVISAO_PADRAO: list[str] = [
+    "seguranca", "sandbox de escrita", "testes", "documentacao", "anti-alucinacao",
+]
+
 # Carrega .env se existir (silencioso se não houver)
 load_dotenv(RAIZ / "config" / "env" / ".env")
 
@@ -48,6 +53,10 @@ class Config:
         # Limite de recursão do grafo (loop agente↔ferramentas); vem de limites.json
         self.recursion_limit: int = int(
             _cfg_json("limites.json", {"recursion_limit": 50})["recursion_limit"])
+        # Checklist fixo da revisão por pares (G3) — vem de limites.json
+        self.checklist_revisao: list[str] = list(
+            _cfg_json("limites.json", {"checklist_revisao": _CHECKLIST_REVISAO_PADRAO})
+            .get("checklist_revisao") or _CHECKLIST_REVISAO_PADRAO)
 
         # --- Gestão de contexto ---
         self.limiar_compressao: int = int(os.getenv("AEGIS_LIMIAR_COMPRESSAO", "20"))
