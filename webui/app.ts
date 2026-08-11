@@ -399,6 +399,7 @@ function cardComando(f: Frame) {
   if (f.status === "recusado" && f.motivo === "politica") chip = '<span class="chip chip-politica">bloqueado</span>';
   else if (f.motivo === "confirmacao" || /confirmar=true/i.test(String(f.resumo ?? ""))) chip = '<span class="chip chip-politica">requer aprovação</span>';
   else chip = '<span class="chip chip-aprovado">política ok</span>';
+  if (f.backend && f.backend !== "local") chip += ` <span class="chip">backend ${escapeHtml(String(f.backend))}</span>`;
   const d = itemFeed("❯", `<code>${escapeHtml(String(f.cmd ?? ""))}</code> <span class="tool-estado ${f.status === "ok" ? "feito" : "erro"}">${statusTxt}${confirmado}</span>${chip}`);
   const det = d.querySelector(".feed-detalhe") as HTMLDivElement;
   det.textContent = `${f.resumo ?? ""}${f.duracao_ms ? ` — ${tempoAgo(Number(f.duracao_ms))}` : ""}`;

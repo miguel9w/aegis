@@ -158,22 +158,53 @@ def buscar_web(consulta: str, max_resultados: int = 5) -> str:
 # Execução de comando em sandbox
 # ---------------------------------------------------------------------
 
-_executor = ExecutorLocal()
+def _executor_sandbox():
+    """Executor do backend configurado (`AEGIS_SANDBOX_BACKEND`)."""
+    from ..sandbox import criar_executor
+    return criar_executor(config.sandbox_backend, cfg=config)
+
+
+def _auditar_comando(resultado, comando: str) -> None:
+    """Registra a execução em `comandos.jsonl` (backend + comando + código).
+
+    Mesmo arquivo/estilo da auditoria da tool `comando` (sistema.py) —
+    campo `backend` em cada registro (C7). A auditoria nunca bloqueia.
+    """
+    from datetime import datetime, timezone
+    import json
+    try:
+        registro = {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "cmd": comando[:200],
+            "status": "ok" if resultado.sucesso else "erro",
+            "codigo": resultado.codigo,
+            "duracao_ms": int(resultado.duracao * 1000),
+            "motivo": (resultado.erro or "")[:200],
+            "backend": resultado.backend,
+        }
+        caminho = config.comandos_path
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        with open(caminho, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(registro, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001 — auditoria nunca derruba o fluxo
+        pass
 
 
 @tool
 def comando_sandbox(comando: str, timeout: int = 30) -> str:
-    """Executa um comando shell em um sandbox isolado local com timeout.
+    """Executa um comando shell em um sandbox isolado com timeout.
 
-    Use para scripts, automação e operações de arquivo. Retorna saída,
-    código de saída e duração. NUNCA execute comandos destrutivos sem
-    confirmação explícita do usuário.
+    Backend por `AEGIS_SANDBOX_BACKEND` (local | docker | ssh — default
+    local). Docker: container efêmero com rede isolada e artefatos montados
+    (denylist de comandos perigosos). SSH: host do .env com allowlist.
+    NUNCA execute comandos destrutivos sem confirmação explícita do usuário.
     """
     try:
         timeout = max(1, min(int(timeout), 120))
     except (TypeError, ValueError):
         timeout = 30
-    resultado = _executor.executar(comando, timeout=timeout)
+    resultado = _executor_sandbox().executar(comando, timeout=timeout)
+    _auditar_comando(resultado, comando)
     if resultado.erro:
         return f"ERRO_FERRAMENTA: {resultado.erro}"
     # C5: a saída de um comando é DADO não confiável — marcada com a classificação

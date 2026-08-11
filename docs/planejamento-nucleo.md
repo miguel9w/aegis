@@ -237,6 +237,10 @@ com aviso visível na web UI; `estatisticas` mostra custo do dia.
 
 ## Fase C7 — Execução distribuída: sandbox Docker e SSH (paridade Hermes)
 
+**Status: ✅ implementado (2026-08)** — `aegis/sandbox.py` (Executors
+docker/ssh + denylist + allowlist + volume) + `tests/test_sandbox_distribuido.py`
+(17 testes, incl. integração Docker real) — commit a ser fechado.
+
 **Objetivo:** `comando_sandbox` ganha backends `docker` e `ssh` além do local
 — com allowlist por backend, timeouts e volumes de artefatos.
 

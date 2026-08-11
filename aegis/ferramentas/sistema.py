@@ -286,6 +286,7 @@ def _registrar_comando(comando: str, *, confirmado: bool, status: str,
         "codigo": codigo,
         "duracao_ms": duracao_ms,
         "motivo": motivo,
+        "backend": "local",  # C7: auditoria sempre carrega o backend usado
     }
     try:
         with caminho.open("a", encoding="utf-8") as fh:

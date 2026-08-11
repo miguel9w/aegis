@@ -179,12 +179,14 @@ def _processar_evento(evento: dict, est: dict) -> list[dict]:
             elif texto_saida.startswith("erro") or "nan" in texto_saida.lower():
                 status = "erro"
             m = re.search(r"duração=(\d+)ms", texto_saida)
+            m_backend = re.match(r"backend=(\w+)", texto_saida) or re.search(r"\bbackend=(\w+)", texto_saida)
             frames.append({
                 "kind": "comando", "cmd": args.get("comando", ""),
                 "status": status, "motivo": motivo,
                 "duracao_ms": int(m.group(1)) if m else 0,
                 "resumo": texto_saida.splitlines()[0] if texto_saida else "",
                 "confirmado": bool(args.get("confirmar")),
+                "backend": m_backend.group(1) if m_backend else "local",
             })
     elif kind == "on_chain_end":
         saida = (evento.get("data") or {}).get("output")

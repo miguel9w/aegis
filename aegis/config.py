@@ -155,6 +155,19 @@ class Config:
             "AEGIS_ARTEFATOS_DIR", "config/dados/artefatos")
         self.exec_timeout: int = int(os.getenv("AEGIS_EXEC_TIMEOUT", "120"))
         self.exec_cwd: Path = Path(os.getenv("AEGIS_EXEC_CWD", "")).expanduser() or RAIZ
+
+        # --- Sandbox distribuído (C7) — backends docker/ssh via .env ---
+        self.sandbox_backend: str = os.getenv("AEGIS_SANDBOX_BACKEND", "local").lower()
+        self.docker_imagem: str = os.getenv("AEGIS_DOCKER_IMAGEM", "alpine:latest")
+        # SSH: host/usuário NUNCA no repo — apenas .env (chave via agent/ssh-agent)
+        self.ssh_host: str = os.getenv("AEGIS_SSH_HOST", "")
+        self.ssh_usuario: str = os.getenv("AEGIS_SSH_USER", "")
+        self.ssh_allowlist: tuple[str, ...] = tuple(
+            x.strip() for x in os.getenv(
+                "AEGIS_SSH_ALLOWLIST",
+                "git,ls,df,du,cat,echo,pwd,whoami,uname,stat,head,tail").split(",")
+            if x.strip())
+        # Auditoria de comandos (JSONL) — cada execução com o backend usado
         self.comandos_path: Path = RAIZ / os.getenv(
             "AEGIS_COMANDOS", "config/dados/comandos.jsonl")
 
