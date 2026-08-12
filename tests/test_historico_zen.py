@@ -117,6 +117,7 @@ def test_segundo_turno_mesma_thread_historico_limpo(monkeypatch, tmp_path):
     monkeypatch.setattr(cfg, "artefatos_dir", tmp_path)
     monkeypatch.setattr(cfg, "multiagente_ativos", False)
     monkeypatch.setattr(cfg, "banco", str(tmp_path / "agente.db"))  # isolado (X3)
+    monkeypatch.setattr(cfg, "learnings_dir", tmp_path / "learnings")  # não poluir docs/ (versionado)
 
     gravador = ModeloGravador()
     ferramentas = recarregar_tudo()

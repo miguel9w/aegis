@@ -166,6 +166,7 @@ def grafo_com_busca_fake(monkeypatch, tmp_path):
         monkeypatch.setattr(cfg, "multiagente_ativos", False)
         # Banco ISOLADO por teste (threads X3 não persistem entre rodadas)
         monkeypatch.setattr(cfg, "banco", str(tmp_path / "agente.db"))
+        monkeypatch.setattr(cfg, "learnings_dir", tmp_path / "learnings")  # não poluir docs/ (versionado)
         monkeypatch.setattr(mod_basicas, "DDGS", lambda: DDGSFake(resultados_ddgs))
 
         modelo = ModeloFake()
