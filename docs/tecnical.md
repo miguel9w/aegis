@@ -144,7 +144,7 @@ Ordem recomendada (do próprio planejamento):
 | Fase | Objetivo | Mudanças-chave |
 |---|---|---|
 | **X1 — Catálogo de subagentes sob demanda** ✅ (2026-08) | além de `delegar_pesquisa`/`delegar_redacao`, delegados especializados com pool reduzido e auto-correção própria | `delegar_codigo`, `delegar_dados`, `delegar_revisao` (revisor dedicado do G3); catálogo `config/dados/delegados.json` com `arq_limite` (bloqueia cascata infinita); reuso de `fabrica_nos` com persona |
-| **X2 — Skills/playbooks (memória procedimental versionada)** | generalizar `extensions/skills/` com frontmatter (nome, descrição, gatilho) carregadas sob demanda | registro dinâmico sem reiniciar; tool `carregar_skill` com teto de tokens; skills ranqueadas no RAG-lite pela descrição |
+| **X2 — Skills/playbooks (memória procedimental versionada)** ✅ (2026-08) | generalizar `extensions/skills/` com frontmatter (nome, descrição, gatilho) carregadas sob demanda | UMA tool `carregar_skill` (catálogo por descrição → injeta corpo com teto `AEGIS_SKILL_TETO_TOKENS`); registro dinâmico sem reiniciar; skill inválida ignorada com aviso; RAG-lite ranqueia pela descrição; skills versionadas: `pesquisa-tecnica` e `revisar-codigo` |
 | **X3 — Fact-checking com fontes** (paridade web-deep-research) | respostas com pesquisa citam fontes; cruza ≥2 fontes antes de afirmar; divergência vira sinalização | busca devolve `{url, titulo, trecho}`; nó `no_fact_check`; estado `fontes: list[{afirmacao, urls, status}]` |
 | **X4 — Early exit inteligente** | o agente para de rodar ferramentas quando já tem o suficiente | sinal no system; heurística `no_early_exit` (pergunta trivial → 1 chamada LLM); métrica `steps_por_turno` |
 | **X5 — Colaboração humana no núcleo** | tool `perguntar_humano` em TODAS as superfícies (TUI, gateway, web) | evento `pergunta` na ponte; timeout configurável (`pergunta_timeout_s`) com default — nunca trava; allowlist de perguntas |
@@ -268,7 +268,7 @@ extensions/
 | `prompts.py` | 17 KB | Construção do system pt-BR: identidade, perfil do usuário, resumo comprimido, catálogo de ferramentas, contexto AGENTS.md, papel ativo, tarefa, bloco de segurança, regras de ferramentas. |
 | `prompts_avancados.py` | 13,3 KB | Formato **APF** (JSON5-lite): comentários `//`/`#`, vírgulas pendentes, variáveis `${chave}`; fichas em `config/prompts_avancados/`; ativação persistida. |
 | `plugins.py` | 3,9 KB | Carregamento dinâmico de `extensions/plugins/*.py` (função `registrar()`), recarga em runtime sem reiniciar o grafo. |
-| `skills.py` | 5,7 KB | Skills auto-evolutivas: `extensions/skills/<nome>/SKILL.md` (frontmatter) → tool `usar_skill_<nome>`; `criar_skill` valida e grava novo SKILL.md (o agente evolui o repo). |
+| `skills.py` | 8,6 KB | Skills auto-evolutivas: `extensions/skills/<nome>/SKILL.md` (frontmatter name/description/gatilho) → tool `carregar_skill` (catálogo por descrição, injeta corpo com teto de tokens); `criar_skill` valida e grava novo SKILL.md (o agente evolui o repo). |
 | `tarefas.py` | 7 KB | Todo (paridade Hermes `todo_tool`): uma tool `tarefas` — informou = escreve, omitiu = lê. |
 | `agendador.py` | 12 KB | Cron interno (paridade Hermes): `agendar`/`agendamentos` em `agendamentos.jsonl` (gitignored), daemon `pixi run agendador` executa vencidos no mesmo grafo, webhook de callback. |
 | `autorizacoes.py` | 1,1 KB | Aprovação de comandos na sessão: `executar_comando` com `confirmar=True` recusa por padrão; se o usuário aprova na janela web, o comando exato fica aprovado em memória (até reiniciar). |
@@ -752,11 +752,10 @@ extensions/
 
 **`aegis/skills.py`**
 
-- `_parsear_frontmatter(texto)` — Extrai frontmatter (name/description) e o corpo do SKILL.md.
-- `carregar_skills(diretorio)` — Varre `<diretorio>/**/SKILL.md` e retorna {nome_registrado: {"descricao", "conteudo", "caminho"}}.
-- `criar_skill_path(diretorio, nome, descricao, conteudo)` — Valida e grava uma habilidade no padrão agentskills.io. Retorna o caminho.
-- `ferramentas_skills(habilidades)` — Cria ferramentas `usar_skill_<nome>` para cada habilidade carregada.
-- `carregar_e_expor(diretorio)` — Le as habilidades e devolve as ferramentas correspondentes.
+- `carregar_skills(diretorio, avisos)` — Varre `<diretorio>/**/SKILL.md` e retorna `{nome_registrado: {"descricao", "gatilho", "conteudo", "caminho"}}`; skill com frontmatter inválido é ignorada com aviso (nunca levanta exceção). X2: registro dinâmico sem reiniciar.
+- `criar_skill_path(diretorio, nome, descricao, conteudo, gatilho)` — Valida e grava uma habilidade no padrão agentskills.io (frontmatter inclui `gatilho` quando fornecido). Retorna o caminho.
+- `ferramentas_skills(habilidades)` — Cria as ferramentas de skill: UMA `carregar_skill` (catálogo por descrição → injeta corpo com teto de tokens) + `criar_skill` (X2; substitui as N `usar_skill_<nome>`).
+- `carregar_e_expor(diretorio)` — Lê as habilidades e devolve as ferramentas correspondentes.
 
 **`aegis/slash.py`**
 
@@ -1161,6 +1160,13 @@ extensions/
 - `test_carregar_skills_lê_skil_md(tmp_path)`
 - `test_carregar_e_expor_cria_ferramentas(tmp_path)`
 - `test_criar_skill_escreve_e_valida(tmp_path)`
+- `test_skill_nova_registrada_sem_reiniciar(tmp_path)` (X2)
+- `test_carregar_skill_tool_injeta_corpo(tmp_path)` (X2)
+- `test_catalogo_lista_descricao_e_gatilho(tmp_path)` (X2)
+- `test_injecao_respeita_teto(tmp_path)` (X2)
+- `test_frontmatter_invalido_ignorado_com_aviso(tmp_path)` (X2)
+- `test_raglite_ranqueia_pela_descricao()` (X2)
+- `test_aceite_skills_do_repo_carregaveis()` (X2)
 - `test_carregar_plugins_exemplo()`
 - `test_contar_e_reverter()`
 - `test_recarregar_plugins()`

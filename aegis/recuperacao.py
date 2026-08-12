@@ -66,10 +66,10 @@ def _itens_do_store() -> list[tuple[str, str]]:
 
 
 def _itens_das_skills() -> list[tuple[str, str]]:
-    """Extrai nome + conteúdo das habilidades registradas."""
+    """X2: indexa nome + DESCRIÇÃO das habilidades (rank por descrição, sem ler corpos)."""
     textos: list[tuple[str, str]] = []
     for nome, info in _skills.HABILIDADES_REGISTRADAS.items():
-        textos.append((f"skill:{nome}", info.get("conteudo", "")))
+        textos.append((f"skill:{nome}", info.get("descricao", "")))
     return textos
 
 

@@ -547,6 +547,15 @@ loop de auto-correção do núcleo.
 
 ## Fase X2 — Skills/playbooks do agente (memória procedimental versionada)
 
+**Status: ✅ implementado (2026-08)** — `extensions/skills/` ganhou `revisar-codigo`
+(exemplo do aceite) e `pesquisa-tecnica` passou a ter `gatilho`. UMA tool
+`carregar_skill` substitui as N `usar_skill_*`: sem argumento lista o catálogo
+(nome + descrição + gatilho); com nome, injeta o corpo no contexto respeitando
+`AEGIS_SKILL_TETO_TOKENS` (default 4000, truncamento sinalizado). Registro
+dinâmico (varredura por diretório, sem reiniciar); frontmatter inválido é
+ignorado com aviso; `criar_skill` aceita `gatilho` e recarrega o registro.
+RAG-lite ranqueia skills pela DESCRIÇÃO (sem ler corpos).
+
 **Objetivo:** generalizar `extensions/skills/` (hoje há `pesquisa-tecnica`):
 skills com frontmatter (nome, descrição, gatilho) que o agente CARREGA sob
 demanda e segue — procedimentos reutilizáveis versionados no repo.

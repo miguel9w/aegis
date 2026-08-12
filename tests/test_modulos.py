@@ -64,8 +64,9 @@ def test_carregar_e_expor_cria_ferramentas(tmp_path):
     )
     ferramentas = carregar_e_expor(tmp_path)
     nomes = [f.name for f in ferramentas]
-    assert "usar_skill_skill-x" in nomes
+    assert "carregar_skill" in nomes  # X2: uma tool de catálogo, não N tools usar_skill_*
     assert "criar_skill" in nomes
+    assert not any(n.startswith("usar_skill_") for n in nomes)
 
 
 def test_criar_skill_escreve_e_valida(tmp_path):

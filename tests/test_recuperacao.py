@@ -14,7 +14,8 @@ def test_pesquisa_recupera_do_store(tmp_path, monkeypatch):
 
     monkeypatch.setattr(rec, "STORE_ATUAL", store)
     monkeypatch.setattr(
-        "aegis.skills.HABILIDADES_REGISTRADAS", {"pesquisa": {"conteudo": "Busque fontes."}}
+        "aegis.skills.HABILIDADES_REGISTRADAS",
+        {"pesquisa": {"descricao": "Busca fontes.", "gatilho": "", "conteudo": "Busque fontes."}},
     )
 
     saida = rec.pesquisar_memoria.invoke({"consulta": "café do Miguel"})
@@ -27,7 +28,13 @@ def test_pesquisa_recupera_skill(tmp_path, monkeypatch):
     monkeypatch.setattr(rec, "STORE_ATUAL", store)
     monkeypatch.setattr(
         "aegis.skills.HABILIDADES_REGISTRADAS",
-        {"pesquisa-tecnica": {"conteudo": "Sempre busque fontes primárias de documentação."}},
+        {
+            "pesquisa-tecnica": {
+                "descricao": "Metodologia de pesquisa técnica com fontes primárias e documentação.",
+                "gatilho": "",
+                "conteudo": "Sempre busque fontes primárias de documentação.",
+            }
+        },
     )
 
     saida = rec.pesquisar_memoria.invoke({"consulta": "fontes documentação"})

@@ -77,6 +77,9 @@ class Config:
             os.getenv("AEGIS_MEMORIA_ATIVA", "true").strip().lower() in {"1", "true", "yes"}
         )
 
+        # --- Habilidades (X2): teto de tokens ao injetar o corpo da skill no contexto
+        self.skill_teto_tokens: int = int(os.getenv("AEGIS_SKILL_TETO_TOKENS", "4000"))
+
         # --- Verify-then-answer (C3): conferir resposta contra evidências ---
         self.verificacao_estrita: bool = (
             os.getenv("AEGIS_VERIFICACAO_ESTRITA", "true").strip().lower()

@@ -1,6 +1,7 @@
 ---
 name: pesquisa-tecnica
 description: Metodologia para pesquisa técnica profunda e confiável (usar antes de responder perguntas técnicas).
+gatilho: perguntas técnicas, científicas, de atualidade ou que exijam fontes verificáveis
 ---
 
 # Pesquisa Técnica
