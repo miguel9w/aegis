@@ -13,6 +13,10 @@ Modos de execução:
     pixi run start --exportar-openai      # trajetorias → dataset OpenAI/RL (config/dados/)
     pixi run start --gateway [PORTA]      # serve o grafo via Webhook HTTP
     pixi run start --dev                  # modo verboso (todos os eventos)
+
+    Execução ÚNICA (com pergunta, sem --thread/--novo-thread) roda em uma
+    thread UUID própria — cada one-shot é uma conversa isolada e determinística;
+    use --thread para sessões contínuas ou a TUI (sem pergunta).
 """
 
 from __future__ import annotations
@@ -94,6 +98,10 @@ def _aplicar_flags(args: Namespace) -> None:
         console.print(f"[bold cyan]→ Novo thread criado: [green]{config.thread_id}[/][/]")
     elif args.thread:
         config.thread_id = args.thread
+    elif args.pergunta:
+        # Execução ÚNICA sem tópico explícito → conversa isolada: não acumula
+        # histórico na thread default (uma pergunta = uma thread, determinístico)
+        config.thread_id = uuid.uuid4().hex[:12]
 
 
 def listar_ferramentas(ferramentas: list) -> None:
