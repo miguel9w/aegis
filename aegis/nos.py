@@ -33,6 +33,66 @@ from langgraph.types import interrupt
 from .config import Config
 from .estado import EstadoAegis
 from .llm import com_retry
+
+
+def _sanitizar_historico(mensagens: list[BaseMessage]) -> list[BaseMessage]:
+    """Remove tool_calls RESOLVIDOS do histórico enviado ao LLM.
+
+    O provider zen (free) regrediu em 2026-08: rejeita com HTTP 400
+    ("Messages with role 'tool' must be a response to a preceding message
+    with 'tool_calls'") qualquer request cujo histórico contenha tool_calls
+    de turnos ANTERIORES — mesmo bem-formados. Ficam intactos apenas os
+    tool_calls da ÚLTIMA AIMessage com tool_calls que ainda NÃO foi
+    respondida (bloco de ferramentas ativo do turno atual); todos os
+    tool_calls resolvidos são zerados e suas ToolMessages órfãs, dropadas.
+
+    A auditoria continua íntegra: o ESTADO mantém as mensagens originais;
+    só o payload enviado ao modelo é sanitizado.
+    """
+    if not mensagens:
+        return mensagens
+
+    # Última AIMessage da lista: se ela tem tool_calls, é o bloco ATIVO
+    # (ainda não respondido). Sem ela, todo tool_call do histórico é resolvido.
+    ativos: set[str] = set()
+    idx_ativa: int | None = None
+    for i in range(len(mensagens) - 1, -1, -1):
+        m = mensagens[i]
+        if getattr(m, "type", "") == "ai":
+            if getattr(m, "tool_calls", None):
+                ativos = {tc["id"] for tc in m.tool_calls}
+                idx_ativa = i
+            break
+
+    if not any(
+        getattr(m, "type", "") == "ai" and getattr(m, "tool_calls", None)
+        for m in mensagens
+    ):
+        return mensagens  # sem tool_calls no histórico — payload intacto
+
+    saida: list[BaseMessage] = []
+    for i, m in enumerate(mensagens):
+        tipo = getattr(m, "type", "")
+        if tipo == "tool":
+            if getattr(m, "tool_call_id", None) not in ativos:
+                continue  # ToolMessage de tool_calls resolvidos — dropada
+            saida.append(m)
+        elif tipo == "ai" and getattr(m, "tool_calls", None):
+            if i == idx_ativa:
+                saida.append(m)  # bloco ativo — preservado intacto
+            else:
+                saida.append(m.model_copy(update={
+                    "tool_calls": [],
+                    "invalid_tool_calls": [],
+                    "additional_kwargs": {
+                        k: v for k, v in m.additional_kwargs.items() if k != "tool_calls"
+                    },
+                }))
+        else:
+            saida.append(m)
+    return saida
+
+
 from .memoria import namespace_decisoes, namespace_licoes, namespace_perfil, namespace_resumos, namespace_uat
 from .seguranca import EH_FONTE_EXTERNA, LICAO_SEGURANCA, classificar_conteudo, marcar_conteudo
 from .uso import custo_estimado, extrair_uso, somar_uso, total_tokens, verificar_orcamento
@@ -493,7 +553,9 @@ def fabricar_nos(llm, ferramentas: list[BaseTool], store: BaseStore | None,
                 pass
 
         system = SystemMessage(texto_sistema)
-        mensagens = [system, *state["mensagens"]]
+        # zen (free) rejeita tool_calls de turnos anteriores (400) — o histórico
+        # enviado é sanitizado; o estado original (auditoria) fica intacto
+        mensagens = [system, *_sanitizar_historico(state["mensagens"])]
         # tag "resposta" → a TUI filtra apenas os tokens desta chamada no streaming
         # callbacks: captura o reasoning_content dos chunks — o provider
         # DeepSeek/Zen exige devolvê-lo quando há tool_calls (senão HTTP 400)

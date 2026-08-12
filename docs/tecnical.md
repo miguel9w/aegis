@@ -131,7 +131,14 @@ rejeita com **HTTP 400** qualquer request que carregue `tool_calls` no
 histórico (`invalid_request_error` — exige `reasoning_content`). A fase foi
 marcada concluída com o status honesto (implementação + testes verdes; prova
 de runtime pendente). **Não é bug do Aegis** — o mesmo request passa por
-outros providers OpenAI-compatíveis. Retomável quando o provider estabilizar.
+outros providers OpenAI-compatíveis.
+
+**Workaround embutido (2026-08):** `no_agente` agora sanitiza o histórico
+antes do invoke (`_sanitizar_historico`) — os `tool_calls` RESOLVIDOS de
+turnos anteriores são zerados e suas `ToolMessages` órfãs, dropadas; só o
+bloco de ferramentas ATIVO do turno atual permanece. O estado original
+(auditoria) fica intacto. Provado em execução real: 2º turno na mesma thread
+com histórico de tools responde sem 400.
 
 ---
 
@@ -247,7 +254,7 @@ extensions/
 | `estado.py` | 5,3 KB | **Estado global do grafo** (`EstadoAegis`, TypedDict). Campos: `mensagens` (reducer `add_messages`), `fluxo_trabalho`, `registros_ferramentas` (sem reducer — o lote mais recente), `uso_tokens`, `licoes`, `fontes`, `commits_entrega`, `revisao_entrega`, `avaliacao`, `metadados_sessao`, `rastro_rotas`. |
 | `factcheck.py` | 7,5 KB | **X3: fact-checking com fontes (zero-LLM).** `extrair_fontes` (parseia o JSON `[{url, titulo, trecho}]` do registro da `buscar_web`), `classificar_afirmacoes` (Jaccard de shingles + negação oposta → `afirmado`/`divergencia`/`fonte_unica`), `no_fact_check` (grava `fontes` no estado e anexa "Fontes verificadas (X3)" à resposta). |
 | `grafo.py` | 12,5 KB | **Montagem do grafo cíclico.** `montar_grafo(llm, ferramentas, checkpointer, store, cfg)` constrói: START → no_agente (com tool_calls? → no_ferramentas; senão → no_memoria → END), no_ferramentas (erro detectado? → no_reflexao_auto_correcao; senão → no_agente), no_compressao_contexto, ciclo G1 (discuss→plan→execute→verify→revisar→ship→uat), no_fact_check (X3, antes da memória quando o turno buscou web), no_reflexao_pos_turno, rota de corte de orçamento (rotas condicionais), Register + checkpointer/store. |
-| `nos.py` | **57 KB** | **Nós do grafo** — o coração. `no_agente` (injeta system com perfil/lições/plano/tarefa, invoca `llm.bind_tools(ferramentas)`, extrai uso), `no_ferramentas` (ToolNode com logging + auditoria), `no_reflexao_auto_correcao`, `no_compressao_contexto`, `no_memoria` (fatos duráveis), `no_verificar` (C3), `no_planejamento`/`no_replanejamento` (C2), `no_discuss`/`no_plan`/`no_execute`/`no_verify_entrega`/`no_revisar`/`no_ship`/`no_uat_apos_ship` (G1/G2/G3), `no_reflexao_pos_turno` (C1/G4 — grava lições categorizadas em `docs/learnings/` + grafo), medição C6 nos 5 nós, `_parsear_*` (plano, revisão, licões, verificações) com fail-safe. |
+| `nos.py` | **57 KB** | **Nós do grafo** — o coração. `no_agente` (injeta system com perfil/lições/plano/tarefa, invoca `llm.bind_tools(ferramentas)`, extrai uso; **sanitiza o histórico** com `_sanitizar_historico` antes do invoke — workaround da regressão do zen), `no_ferramentas` (ToolNode com logging + auditoria), `no_reflexao_auto_correcao`, `no_compressao_contexto`, `no_memoria` (fatos duráveis), `no_verificar` (C3), `no_planejamento`/`no_replanejamento` (C2), `no_discuss`/`no_plan`/`no_execute`/`no_verify_entrega`/`no_revisar`/`no_ship`/`no_uat_apos_ship` (G1/G2/G3), `no_reflexao_pos_turno` (C1/G4 — grava lições categorizadas em `docs/learnings/` + grafo), medição C6 nos 5 nós, `_parsear_*` (plano, revisão, licões, verificações) com fail-safe. |
 | `llm.py` | 3,9 KB | Provedor agnóstico (ChatOpenAI). Retry resiliente com backoff exponencial + jitter e respeito a `Retry-After`. |
 | `memoria.py` | 5,7 KB | `criar_checkpointer_sync` (SqliteSaver — checkpoints por passo) e `criar_store_sync` (SqliteStore — longo prazo), **conexões separadas** (fix de transação), namespaces `namespace_licoes()` e `namespace_handoffs()` (G5). |
 | `recuperacao.py` | 9,6 KB | RAG-lite: ranking por overlap de tokens com peso IDF sobre a Store + `extensions/skills/`; determinístico, sem LLM. |
@@ -580,6 +587,7 @@ extensions/
 
 - **classe `_CapturaRaciocinio`** — Coleta o `reasoning_content` dos chunks do stream (DeepSeek/Zen). O DeepSeek em modo thinking EMITE o raciocínio nos chu
   - `on_llm_new_token(self, token, chunk, **kwargs)`
+- `_sanitizar_historico(mensagens)` — **Workaround da regressão do zen (2026-08):** remove `tool_calls` RESOLVIDOS do histórico enviado ao LLM (zera os `tool_calls`/`invalid_tool_calls`/`additional_kwargs` das AIMessages antigas e dropa as `ToolMessages` órfãs), preservando o bloco de ferramentas ATIVO do turno (última AIMessage com tool_calls ainda não respondida). O ESTADO mantém as mensagens originais — só o payload é limpo.
 - `_eh_erro(mensagem)` — True se a mensagem de ferramenta indica falha (prefixo de erro).
 - `_parsear_json_fatos(texto)` — Faz parse tolerante do JSON de fatos retornado pelo LLM.
 - `_parsear_licoes(texto)` — Parse tolerante do JSON de lições: [(texto, prioridade)] (máx. 3).
