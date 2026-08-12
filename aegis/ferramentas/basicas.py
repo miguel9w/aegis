@@ -126,7 +126,8 @@ def _buscar_searxng(consulta: str, max_resultados: int) -> list[dict]:
 def buscar_web(consulta: str, max_resultados: int = 5) -> str:
     """Busca na web (DuckDuckGo; usa SearXNG se AEGIS_SEARXNG_URL estiver configurado).
 
-    Retorna uma lista numerada de resultados com título, URL e trecho.
+    X3: devolve JSON estruturado `[{"url", "titulo", "trecho"}, ...]` — o
+    fact-check (no_fact_check) usa as fontes para citar/divergir.
     Use quando precisar de informação atualizada/externa.
     """
     limite = max(1, min(int(max_resultados), 10))
@@ -141,17 +142,20 @@ def buscar_web(consulta: str, max_resultados: int = 5) -> str:
     if not resultados:
         return "Busca concluída, mas nenhum resultado relevante foi encontrado."
 
-    blocos = []
-    for i, r in enumerate(resultados, 1):
-        titulo = r.get("title") or "(sem título)"
+    import json as _json
+
+    fontes = []
+    for r in resultados:
         url = r.get("href") or r.get("url") or ""
-        trecho = (r.get("body") or r.get("content") or "").strip()[:300]
-        bloco = f"{i}. {titulo}\n   {url}"
-        if trecho:
-            bloco += f"\n   {trecho}"
-        blocos.append(bloco)
+        if not url:
+            continue
+        fontes.append({
+            "url": url,
+            "titulo": r.get("title") or "(sem título)",
+            "trecho": (r.get("body") or r.get("content") or "").strip()[:300],
+        })
     # C5: resultados web são DADO não confiável — marcados com a classificação
-    return marcar_conteudo("\n\n".join(blocos), fonte="busca web")
+    return marcar_conteudo(_json.dumps(fontes, ensure_ascii=False), fonte="busca web")
 
 
 # ---------------------------------------------------------------------

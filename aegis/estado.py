@@ -122,3 +122,6 @@ class EstadoAegis(TypedDict):
     # Revisão por pares antes do ship (G3): {itens, checklist_total,
     # aprovados, apontamentos, revisado_em} — auditoria replayável
     revisao_entrega: NotRequired[dict[str, Any]]
+    # X3: fact-checking com fontes — list[{afirmacao, urls, status}]
+    # (status: afirmado | divergencia | fonte_unica), auditável
+    fontes: NotRequired[Annotated[list[dict[str, Any]], operator.add]]

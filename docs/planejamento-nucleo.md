@@ -580,6 +580,15 @@ seguida num turno real sem reiniciar o serviço.
 
 ## Fase X3 — Fact-checking com fontes (paridade web-deep-research)
 
+**Status: ✅ implementado (2026-08)** — `buscar_web` devolve
+`[{url, titulo, trecho}]` (JSON estruturado, marcado C5); nó `no_fact_check`
+(zero-LLM, em `aegis/factcheck.py`) roda antes da memória quando o turno
+consultou a web: agrupa por consulta, mede consistência entre ≥2 fontes
+(Jaccard de shingles + detecção de negação oposta) e grava
+`fontes: [{afirmacao, urls, status}]` no estado; a resposta final anexa o
+bloco "Fontes verificadas (X3)" — `afirmado` cita as URLs, `divergencia`
+aponta "fontes divergem — url1 vs url2". Turno sem web → o nó nem roda.
+
 **Objetivo:** respostas baseadas em pesquisa citam fontes e o agente cruza
 ≥2 fontes antes de afirmar — divergência vira sinalização explícita.
 
@@ -597,7 +606,8 @@ seguida num turno real sem reiniciar o serviço.
 - turno sem web → `no_fact_check` não roda (zero custo).
 
 **Critério de aceite:** pergunta de pesquisa real responde com fontes citadas
-e, se houver conflito, aponta a divergência explicitamente.
+e, se houver conflito, aponta a divergência explicitamente. ✅ (prova real
+determinística: cenário afirmado + cenário divergência com grafo montado).
 
 ---
 

@@ -145,7 +145,7 @@ Ordem recomendada (do próprio planejamento):
 |---|---|---|
 | **X1 — Catálogo de subagentes sob demanda** ✅ (2026-08) | além de `delegar_pesquisa`/`delegar_redacao`, delegados especializados com pool reduzido e auto-correção própria | `delegar_codigo`, `delegar_dados`, `delegar_revisao` (revisor dedicado do G3); catálogo `config/dados/delegados.json` com `arq_limite` (bloqueia cascata infinita); reuso de `fabrica_nos` com persona |
 | **X2 — Skills/playbooks (memória procedimental versionada)** ✅ (2026-08) | generalizar `extensions/skills/` com frontmatter (nome, descrição, gatilho) carregadas sob demanda | UMA tool `carregar_skill` (catálogo por descrição → injeta corpo com teto `AEGIS_SKILL_TETO_TOKENS`); registro dinâmico sem reiniciar; skill inválida ignorada com aviso; RAG-lite ranqueia pela descrição; skills versionadas: `pesquisa-tecnica` e `revisar-codigo` |
-| **X3 — Fact-checking com fontes** (paridade web-deep-research) | respostas com pesquisa citam fontes; cruza ≥2 fontes antes de afirmar; divergência vira sinalização | busca devolve `{url, titulo, trecho}`; nó `no_fact_check`; estado `fontes: list[{afirmacao, urls, status}]` |
+| **X3 — Fact-checking com fontes (paridade web-deep-research)** ✅ (2026-08) | respostas com pesquisa citam fontes; cruza ≥2 fontes antes de afirmar; divergência vira sinalização | `buscar_web` devolve `[{url, titulo, trecho}]`; nó zero-LLM `no_fact_check` (Jaccard + negação oposta); estado `fontes: list[{afirmacao, urls, status}]`; bloco "Fontes verificadas (X3)" na resposta |
 | **X4 — Early exit inteligente** | o agente para de rodar ferramentas quando já tem o suficiente | sinal no system; heurística `no_early_exit` (pergunta trivial → 1 chamada LLM); métrica `steps_por_turno` |
 | **X5 — Colaboração humana no núcleo** | tool `perguntar_humano` em TODAS as superfícies (TUI, gateway, web) | evento `pergunta` na ponte; timeout configurável (`pergunta_timeout_s`) com default — nunca trava; allowlist de perguntas |
 | **X6 — Observabilidade do pensamento** | reasoning/plano saem como ESTRUTURA nos eventos; cada rota declara o motivo | evento `raciocinio` `{partes: [{tipo: thinking\|plano\|decisao}]}`; `rota_motivo` em `metadados_sessao`; evento `fase` no ciclo G1 |
@@ -176,7 +176,8 @@ aegis/
 ├── config.py                # singleton de configuração (.env)
 ├── config_json.py           # config por JSON com fallback
 ├── contexto.py              # AGENTS.md/CLAUDE.md
-├── estado.py                # TypedDict do grafo
+├── estado.py                # TypedDict do estado (incl. fontes X3)
+├── factcheck.py             # X3: fact-checking com fontes (zero-LLM)
 ├── exportador.py            # trajetórias → datasets
 ├── ferramentas/             # tools (ver abaixo)
 ├── gateways/                # webhook HTTP
@@ -244,7 +245,8 @@ extensions/
 | `__init__.py` | 425 B | Docstring do pacote: "Agente Pessoal Autônomo". Não importa nada pesado (imports preguiçosos). |
 | `config.py` | 9,9 KB | **Singleton tipado** de configuração. Carrega `config/env/.env`, expõe `OPENAI_API_BASE/KEY`, `MODEL_NAME`, `temperatura`, `max_tokens`, `thread_id`, `banco`, `artefatos_dir`, `comandos_path`, `learnings_dir`, `grafo_path`, `exec_timeout`, `orcamento_por_turno/sessao`, `checklist_revisao`, limites… Nenhuma chave é commitada. |
 | `estado.py` | 5,3 KB | **Estado global do grafo** (`EstadoAegis`, TypedDict). Campos: `mensagens` (reducer `add_messages`), `fluxo_trabalho`, `registros_ferramentas` (sem reducer — o lote mais recente), `uso_tokens`, `licoes`, `fontes`, `commits_entrega`, `revisao_entrega`, `avaliacao`, `metadados_sessao`, `rastro_rotas`. |
-| `grafo.py` | 11,8 KB | **Montagem do grafo cíclico.** `montar_grafo(llm, ferramentas, checkpointer, store, cfg)` constrói: START → no_agente (com tool_calls? → no_ferramentas; senão → no_memoria → END), no_ferramentas (erro detectado? → no_reflexao_auto_correcao; senão → no_agente), no_compressao_contexto, ciclo G1 (discuss→plan→execute→verify→revisar→ship→uat), no_reflexao_pos_turno, rota de corte de orçamento (rotas condicionais), Register + checkpointer/store. |
+| `factcheck.py` | 7,5 KB | **X3: fact-checking com fontes (zero-LLM).** `extrair_fontes` (parseia o JSON `[{url, titulo, trecho}]` do registro da `buscar_web`), `classificar_afirmacoes` (Jaccard de shingles + negação oposta → `afirmado`/`divergencia`/`fonte_unica`), `no_fact_check` (grava `fontes` no estado e anexa "Fontes verificadas (X3)" à resposta). |
+| `grafo.py` | 12,5 KB | **Montagem do grafo cíclico.** `montar_grafo(llm, ferramentas, checkpointer, store, cfg)` constrói: START → no_agente (com tool_calls? → no_ferramentas; senão → no_memoria → END), no_ferramentas (erro detectado? → no_reflexao_auto_correcao; senão → no_agente), no_compressao_contexto, ciclo G1 (discuss→plan→execute→verify→revisar→ship→uat), no_fact_check (X3, antes da memória quando o turno buscou web), no_reflexao_pos_turno, rota de corte de orçamento (rotas condicionais), Register + checkpointer/store. |
 | `nos.py` | **57 KB** | **Nós do grafo** — o coração. `no_agente` (injeta system com perfil/lições/plano/tarefa, invoca `llm.bind_tools(ferramentas)`, extrai uso), `no_ferramentas` (ToolNode com logging + auditoria), `no_reflexao_auto_correcao`, `no_compressao_contexto`, `no_memoria` (fatos duráveis), `no_verificar` (C3), `no_planejamento`/`no_replanejamento` (C2), `no_discuss`/`no_plan`/`no_execute`/`no_verify_entrega`/`no_revisar`/`no_ship`/`no_uat_apos_ship` (G1/G2/G3), `no_reflexao_pos_turno` (C1/G4 — grava lições categorizadas em `docs/learnings/` + grafo), medição C6 nos 5 nós, `_parsear_*` (plano, revisão, licões, verificações) com fail-safe. |
 | `llm.py` | 3,9 KB | Provedor agnóstico (ChatOpenAI). Retry resiliente com backoff exponencial + jitter e respeito a `Retry-After`. |
 | `memoria.py` | 5,7 KB | `criar_checkpointer_sync` (SqliteSaver — checkpoints por passo) e `criar_store_sync` (SqliteStore — longo prazo), **conexões separadas** (fix de transação), namespaces `namespace_licoes()` e `namespace_handoffs()` (G5). |
@@ -498,6 +500,13 @@ extensions/
 
 - `carregar_registros(diretorio)` — Carrega e mescla todos os `*.jsonl` do diretório, ordenados por `ts`.
 - `agrupar_por_thread(registros)` — Agrupa os registros por `thread_id`, preservando a ordem temporal.
+
+**`aegis/factcheck.py`** (X3)
+
+- `extrair_fontes(registros_ferramentas)` — Extrai `{url, titulo, trecho, consulta}` dos registros de `buscar_web` (parseia o JSON estruturado no resultado marcado C5).
+- `classificar_afirmacoes(fontes)` — Classifica as afirmações por consulta: ≥2 fontes consistentes (Jaccard de shingles ≥ limiar, sem negação oposta) → `afirmado`; disjuntas ou contraditórias → `divergencia` (cita as duas); 1 fonte → `fonte_unica`.
+- `turno_usou_busca_web(state)` — True quando o turno executou `buscar_web` com sucesso (fact-check roda).
+- `no_fact_check(state)` — X3: grava `fontes: [{afirmacao, urls, status}]` no estado e anexa o bloco "Fontes verificadas (X3)" à última resposta; sem fontes → `{}` (zero custo).
 - `_converter_para_mensagens(registros)` — Converte registros de uma thread em pares {role, content} (OpenAI/ChatML).
 - `_anexar_notas(mensagens, notas)` — Anexa notas de ferramenta pendentes à última mensagem do assistente.
 - `_para_sharegpt(mensagens)` — Converte pares {role, content} para o formato ShareGPT {from, value}.
@@ -1167,6 +1176,12 @@ extensions/
 - `test_frontmatter_invalido_ignorado_com_aviso(tmp_path)` (X2)
 - `test_raglite_ranqueia_pela_descricao()` (X2)
 - `test_aceite_skills_do_repo_carregaveis()` (X2)
+- `test_duas_fontes_concordando_afirmado()` (X3)
+- `test_fontes_conflitantes_divergencia()` (X3)
+- `test_contradicao_lexical_divergencia()` (X3)
+- `test_turno_sem_web_zero_custo()` (X3)
+- `test_integracao_duas_fontes_afirmado()` (X3)
+- `test_integracao_fontes_divergentes()` (X3)
 - `test_carregar_plugins_exemplo()`
 - `test_contar_e_reverter()`
 - `test_recarregar_plugins()`

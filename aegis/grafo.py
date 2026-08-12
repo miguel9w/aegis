@@ -25,6 +25,7 @@ from langgraph.graph import END, START, StateGraph
 
 from .config import Config
 from .estado import EstadoAegis
+from . import factcheck as _factcheck
 from .nos import fabricar_nos
 
 
@@ -108,12 +109,18 @@ def montar_grafo(
         return "ciclo" if ft and ft.get("fase") else "legado"
 
     def rota_apos_verificacao(state: EstadoAegis) -> str:
-        """Divergência confirmada (1ª vez) volta ao agente para correção."""
+        """Divergência confirmada (1ª vez) volta ao agente para correção.
+
+        X3: turno que consultou a web passa pelo `no_fact_check` antes da
+        memória; sem web → direto (zero custo).
+        """
         if (
             state.get("verificacao_veredito") == "divergencia"
             and (state.get("verificacoes_realizadas") or 0) <= 1
         ):
             return "agente"
+        if _factcheck.turno_usou_busca_web(state):
+            return "fact_check"
         return "memoria"
 
     def rota_apos_ferramentas(state: EstadoAegis) -> str:
@@ -149,6 +156,7 @@ def montar_grafo(
     grafo.add_node("no_planejamento", nos["no_planejamento"])
     grafo.add_node("no_replanejamento", nos["no_replanejamento"])
     grafo.add_node("no_verificar", nos["no_verificar"])
+    grafo.add_node("no_fact_check", _factcheck.no_fact_check)  # X3: zero-LLM
     grafo.add_node("no_classificador_entrega", nos["no_classificador_entrega"])
     grafo.add_node("no_discuss", nos["no_discuss"])
     grafo.add_node("no_plan_entrega", nos["no_plan_entrega"])
@@ -229,20 +237,24 @@ def montar_grafo(
         ft = state.get("fluxo_trabalho") or {}
         criterios = [c.get("texto") for c in (ft.get("criterios") or [])]
         if not criterios:
-            return "memoria"
+            return "fact_check" if _factcheck.turno_usou_busca_web(state) else "memoria"
         julgados = {u.get("criterio") for u in (state.get("uat") or [])}
-        return "uat" if any(c not in julgados for c in criterios) else "memoria"
+        if any(c not in julgados for c in criterios):
+            return "uat"
+        return "fact_check" if _factcheck.turno_usou_busca_web(state) else "memoria"
 
     grafo.add_conditional_edges(
         "no_uat_apos_ship",
         rota_apos_uat,
-        {"uat": "no_uat_apos_ship", "memoria": "no_memoria"},
+        {"uat": "no_uat_apos_ship", "fact_check": "no_fact_check", "memoria": "no_memoria"},
     )
     grafo.add_conditional_edges(
         "no_verificar",
         rota_apos_verificacao,
-        {"agente": "no_agente", "memoria": "no_memoria"},
+        {"agente": "no_agente", "fact_check": "no_fact_check", "memoria": "no_memoria"},
     )
+    # X3: fact-check (zero-LLM) roda antes da memória quando o turno buscou web
+    grafo.add_edge("no_fact_check", "no_memoria")
     grafo.add_conditional_edges(
         "no_ferramentas",
         rota_apos_ferramentas,
